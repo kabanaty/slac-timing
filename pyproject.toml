@@ -1,0 +1,31 @@
+[project]
+authors = [
+    { name = "The Board of Trustees of the Leland Stanford Junior University, through SLAC National Accelerator Laboratory"},
+]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "License :: OSI Approved :: Apache Software License",
+    "Natural Language :: English",
+    "Programming Language :: Python",
+    "Topic :: Scientific/Engineering",
+]
+dependencies = [
+    "numpy",
+    "pydantic",
+    "pyepics",
+]
+description = "Timing buffer interface for LCLS beam synchronous acquisition"
+name = "slac-timing"
+readme = {file = "README.rst", content-type = "text/x-rst"}
+requires-python = ">=3.10"
+version = "0.1.0"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
