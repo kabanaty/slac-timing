@@ -1,35 +1,32 @@
-[build-system]
-requires = ["setuptools >= 75.0",  "setuptools_scm[toml]>=8.0"]
-build-backend = "setuptools.build_meta"
-
 [project]
 authors = [
-    {name = "The Board of Trustees of the Leland Stanford Junior University, through SLAC National Accelerator Laboratory"},
-    {name = "Matt Gibbs"},
+    { name = "The Board of Trustees of the Leland Stanford Junior University, through SLAC National Accelerator Laboratory"},
 ]
 classifiers = [
-    "Development Status :: 5 - Production/Stable",
+    "Development Status :: 2 - Pre-Alpha",
     "License :: OSI Approved :: Apache Software License",
     "Natural Language :: English",
     "Programming Language :: Python",
     "Topic :: Scientific/Engineering",
 ]
 dependencies = [
+    "numpy",
+    "pydantic",
     "pyepics",
+    "slac-devices @ git+https://github.com/slaclab/slac-devices.git@main",
 ]
-description = "Tools to support high level application development at LCLS using Python"
-dynamic = ["version"]
-name = "slac-db"
+description = "Timing buffer interface for LCLS beam synchronous acquisition"
+name = "slac-timing"
 readme = {file = "README.rst", content-type = "text/x-rst"}
 requires-python = ">=3.10"
+version = "0.1.0"
 
-[project.optional-dependencies]
-dev = [
-    "pytest",
-]
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
+[tool.ruff]
+line-length = 88
 
-[tool.setuptools.packages.find]
-include = ["edef*"]
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
