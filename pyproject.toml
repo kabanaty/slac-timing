@@ -16,6 +16,7 @@ classifiers = [
 ]
 dependencies = [
     "pyepics",
+    "slac-devices @ git+https://github.com/slaclab/slac-devices.git@main",
 ]
 description = "Tools to support high level application development at LCLS using Python"
 dynamic = ["version"]

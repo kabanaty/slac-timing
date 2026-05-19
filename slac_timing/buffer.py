@@ -2,7 +2,9 @@ from abc import ABC, abstractmethod
 from typing import Optional
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, PrivateAttr
+
+from slac_timing.pvs import BufferPVs
 
 
 class ReservationError(Exception):
@@ -24,11 +26,27 @@ class Buffer(BaseModel, ABC):
     n_measurements: int
     n_avg: int = 1
 
+    _pvs: Optional[BufferPVs] = PrivateAttr(default=None)
+
     @property
     @abstractmethod
     def pv_prefix(self) -> str:
         """Full PV prefix for this buffer instance, e.g. 'EDEF:SYS0:3'."""
         ...
+
+    @abstractmethod
+    def _create_pvs(self) -> BufferPVs:
+        """Create the PV container for this buffer type."""
+        ...
+
+    @property
+    def pvs(self) -> BufferPVs:
+        if self._pvs is None:
+            raise ReservationError("PVs not available: buffer not reserved.")
+        return self._pvs
+
+    def _init_pvs(self) -> None:
+        self._pvs = self._create_pvs()
 
     # --- Lifecycle ---
 
@@ -44,6 +62,10 @@ class Buffer(BaseModel, ABC):
 
     def is_reserved(self) -> bool:
         return self.number is not None and self.number != 0
+
+    def _require_reserved(self, action: str) -> None:
+        if not self.is_reserved():
+            raise ReservationError(f"Buffer not reserved, cannot {action}.")
 
     def __enter__(self) -> "Buffer":
         return self
