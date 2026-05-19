@@ -1,7 +1,9 @@
 from edef import EventDefinition
 import time
 
-my_edef = EventDefinition("Matt's EDEF", user="mgibbs") #Will raise an exception if no EDEFs available.
+my_edef = EventDefinition(
+    "Matt's EDEF", user="mgibbs"
+)  # Will raise an exception if no EDEFs available.
 
 # You can set inclusion/exclusion masks with a list of modifier bits.
 # Use the name for each bit.  The names are case sensitive, so watch out!
@@ -16,23 +18,25 @@ my_edef.beamcode = 2
 # Now, start the acquisition.
 my_edef.start()
 
-# Wait for the edef to collect all 500 points.  Alternatively, you can 
+# Wait for the edef to collect all 500 points.  Alternatively, you can
 # set a callback function to run when acquisition is complete instead.
 while not my_edef.is_acquisition_complete():
     time.sleep(0.1)
- 
+
+
 def my_done_callback():
     print(my_edef.get_data_buffer("BPMS:LTUH:250:X"))
-    
-my_edef.done_callback = my_callback
+
+
+my_edef.done_callback = my_done_callback
 my_edef.start()
 
-#You can use the edef object to get the acquired data for your edef.
+# You can use the edef object to get the acquired data for your edef.
 dl2_bpm_data = my_edef.get_data_buffer("BPMS:LTUH:250:X")
 print(dl2_bpm_data)
 
 
-#Please release your edef when you are done!
+# Please release your edef when you are done!
 my_edef.release()
 
 # You can also use an event definition using python's "with" keyword.
@@ -44,4 +48,3 @@ with EventDefinition("Matt's EDEF", user="mgibbs") as my_other_edef:
         time.sleep(0.1)
     data = my_other_edef.get_data_buffer("BPMS:LTUH:250:X")
     print(data)
-

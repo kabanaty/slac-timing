@@ -23,5 +23,13 @@ name = "slac-db"
 readme = {file = "README.rst", content-type = "text/x-rst"}
 requires-python = ">=3.10"
 
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [tool.setuptools.packages.find]
 include = ["edef*"]
