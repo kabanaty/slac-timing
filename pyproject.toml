@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools >= 75.0",  "setuptools_scm[toml]>=8.0"]
+requires = ["setuptools >= 75.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -15,11 +15,14 @@ classifiers = [
     "Topic :: Scientific/Engineering",
 ]
 dependencies = [
+    "numpy",
+    "pydantic",
     "pyepics",
+    "slac-devices @ git+https://github.com/slaclab/slac-devices.git@main",
 ]
-description = "Tools to support high level application development at LCLS using Python"
-dynamic = ["version"]
-name = "slac-db"
+description = "Timing buffer interface for LCLS beam synchronous acquisition"
+name = "slac-timing"
+version = "0.1.0"
 readme = {file = "README.rst", content-type = "text/x-rst"}
 requires-python = ">=3.10"
 
@@ -32,4 +35,4 @@ dev = [
 testpaths = ["tests"]
 
 [tool.setuptools.packages.find]
-include = ["edef*"]
+include = ["slac_timing*"]

@@ -32,3 +32,6 @@ __pycache__/
 # svn & cvs
 .svn
 CVS
+
+# claude
+CLAUDE.md
