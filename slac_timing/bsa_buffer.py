@@ -43,7 +43,10 @@ class BSABuffer(Buffer):
     def _reserve(self) -> int:
         available = _SYSTEM.nfree.get()
         if available is not None and available < 1:
-            raise ReservationError("No BSA buffers available.")
+            raise ReservationError(
+                f"No BSA buffers available for {self.name!r} (user={self.user!r}). "
+                f"Check BSA:SYS0:1:NFREEBSA and BSA:SYS0:1:{{21-49}}:NAME to see current holders."
+            )
 
         _SYSTEM.reserve_name.put(self.name, wait=True)
         elapsed = 0.0
@@ -57,8 +60,16 @@ class BSABuffer(Buffer):
             elapsed += 0.05
 
         if not _SYSTEM.nfree.get():
-            raise ReservationError("No BSA buffers available.")
-        raise ReservationError("Could not reserve a BSA buffer.")
+            raise ReservationError(
+                f"No BSA buffers available for {self.name!r} (user={self.user!r}) "
+                f"after waiting {_RESERVE_TIMEOUT_S}s. "
+                f"Check BSA:SYS0:1:NFREEBSA and BSA:SYS0:1:{{21-49}}:NAME to see current holders."
+            )
+        raise ReservationError(
+            f"Could not reserve a BSA buffer for {self.name!r} (user={self.user!r}) "
+            f"within {_RESERVE_TIMEOUT_S}s. The system reported free slots but none matched. "
+            f"Try again or check BSA:SYS0:1:{{21-49}}:NAME for stale reservations."
+        )
 
     def _configure(self) -> None:
         self.pvs.avgcnt.put(self.n_avg)
@@ -91,7 +102,10 @@ class BSABuffer(Buffer):
         while self.is_complete():
             time.sleep(0.01)
             if time.time() > deadline:
-                raise ReservationError("BSA buffer was not able to start.")
+                raise ReservationError(
+                    f"BSA buffer {self.number} ({self.name!r}, user={self.user!r}) "
+                    f"was not able to start within 1.0s."
+                )
 
     def stop(self) -> None:
         self._require_reserved("stop")
@@ -112,7 +126,13 @@ class BSABuffer(Buffer):
         cache = self._get_mask_cache()
         bit_mask = 0
         for mask in masks:
-            bit_num = cache[mask]
+            try:
+                bit_num = cache[mask]
+            except KeyError:
+                valid = list(cache.keys())
+                raise ValueError(
+                    f"Invalid destination mask {mask!r}. Valid options: {valid}"
+                ) from None
             self.pvs.dst[bit_num].put(1)
             bit_mask = bit_mask | (1 << bit_num)
         self.pvs.destmask.put(bit_mask)

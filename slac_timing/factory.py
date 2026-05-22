@@ -34,4 +34,6 @@ def create_buffer(
             destination_masks=[beampath],
         )
 
-    raise ValueError(f"Unknown beampath: {beampath!r}")
+    raise ValueError(
+        f"Unknown beampath: {beampath!r}. Expected CU_HXR, CU_SXR, or SC_*."
+    )

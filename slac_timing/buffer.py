@@ -97,7 +97,10 @@ class Buffer(BaseModel, ABC):
         start = time.time()
         while not self.is_complete():
             if time.time() - start > timeout:
-                raise TimeoutError("Buffer acquisition timed out.")
+                raise TimeoutError(
+                    f"Buffer acquisition timed out after {timeout}s "
+                    f"(name={self.name!r}, user={self.user!r})."
+                )
             time.sleep(0.05)
 
     @property

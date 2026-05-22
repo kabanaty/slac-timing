@@ -56,8 +56,16 @@ class EventDefinition(Buffer):
 
         available = _SYSTEM.available.get()
         if available is not None and available < 1:
-            raise ReservationError("No event definitions available.")
-        raise ReservationError("Could not reserve an EDEF.")
+            raise ReservationError(
+                f"No event definitions available for {self.name!r} (user={self.user!r}) "
+                f"after waiting {_RESERVE_TIMEOUT_S}s. "
+                f"Check IOC:IN20:EV01:EDEFAVAIL and EDEF:SYS0:{{1-11}}:NAME to see current holders."
+            )
+        raise ReservationError(
+            f"Could not reserve an EDEF for {self.name!r} (user={self.user!r}) "
+            f"within {_RESERVE_TIMEOUT_S}s. The system reported free slots but none matched. "
+            f"Try again or check EDEF:SYS0:{{1-11}}:NAME for stale reservations."
+        )
 
     def _configure(self) -> None:
         self.pvs.avgcnt.put(self.n_avg)
@@ -103,7 +111,13 @@ class EventDefinition(Buffer):
         cache = self._get_mask_cache()
         bit_mask = 0
         for mask in masks:
-            bit_num = cache[mask]
+            try:
+                bit_num = cache[mask]
+            except KeyError:
+                valid = list(cache.keys())
+                raise ValueError(
+                    f"Invalid {mask_type} mask {mask!r}. Valid options: {valid}"
+                ) from None
             bit_mask = bit_mask | (1 << (bit_num + 32))
         for modifier_num in (5, 4, 3, 2, 1):
             mod_mask = (bit_mask >> 32 * (modifier_num + 1)) & 0xFFFFFFFF
