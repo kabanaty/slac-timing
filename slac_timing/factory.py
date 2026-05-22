@@ -35,5 +35,6 @@ def create_buffer(
         )
 
     raise ValueError(
-        f"Unknown beampath: {beampath!r}. Expected CU_HXR, CU_SXR, or SC_*."
+        f"Unknown beampath: {beampath!r}. "
+        f"Expected one of: CU_HXR, CU_SXR, SC_BSYD, SC_DIAG0, SC_HXR, SC_SXR."
     )
