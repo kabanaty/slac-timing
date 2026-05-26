@@ -1,6 +1,6 @@
 from slac_timing.buffer import Buffer
 from slac_timing.bsa_buffer import BSABuffer
-from slac_timing.event_definition import EventDefinition
+from slac_timing.event_definition import EventDefinition, BEAMCODE_MAP
 
 
 def create_buffer(
@@ -21,7 +21,7 @@ def create_buffer(
             user=user,
             n_measurements=n_measurements,
             n_avg=n_avg,
-            beamcode=EventDefinition.BEAMCODE_MAP[beampath],
+            beamcode=BEAMCODE_MAP[beampath],
         )
 
     if beampath.startswith("SC_"):

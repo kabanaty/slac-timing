@@ -1,0 +1,123 @@
+=========================================================================== test session starts ===========================================================================
+platform darwin -- Python 3.14.4, pytest-9.0.3, pluggy-1.6.0 -- /opt/homebrew/Caskroom/miniconda/base/envs/slac-timing/bin/python3.14
+cachedir: .pytest_cache
+rootdir: /Users/efjy/dev/slac-timing
+configfile: pyproject.toml
+plugins: asyncio-1.3.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 5 items
+
+event_definition_test.py::test_edef_name_timeout PASSED
+event_definition_test.py::test_slot_name_timeout PASSED
+event_definition_test.py::test_slot_username_timeout ../../slac_timing/event_definition.py:61:_reserve None
+PASSED
+event_definition_test.py::test_fail_available_timeout PASSED
+event_definition_test.py::test_no_reservations FAILED
+
+================================================================================ FAILURES =================================================================================
+__________________________________________________________________________ test_no_reservations ___________________________________________________________________________
+Traceback (most recent call last):
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/slac-timing/lib/python3.14/site-packages/_pytest/runner.py", line 353, in from_call
+    result: TResult | None = func()
+                             ~~~~^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/slac-timing/lib/python3.14/site-packages/_pytest/runner.py", line 245, in <lambda>
+    lambda: runtest_hook(item=item, **kwds),
+            ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/slac-timing/lib/python3.14/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+           ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/slac-timing/lib/python3.14/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/slac-timing/lib/python3.14/site-packages/pluggy/_callers.py", line 167, in _multicall
+    raise exception
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/slac-timing/lib/python3.14/site-packages/pluggy/_callers.py", line 139, in _multicall
+    teardown.throw(exception)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/slac-timing/lib/python3.14/site-packages/_pytest/logging.py", line 850, in pytest_runtest_call
+    yield
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/slac-timing/lib/python3.14/site-packages/pluggy/_callers.py", line 139, in _multicall
+    teardown.throw(exception)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/slac-timing/lib/python3.14/site-packages/_pytest/capture.py", line 900, in pytest_runtest_call
+    return (yield)
+            ^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/slac-timing/lib/python3.14/site-packages/pluggy/_callers.py", line 139, in _multicall
+    teardown.throw(exception)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/slac-timing/lib/python3.14/site-packages/_pytest/skipping.py", line 268, in pytest_runtest_call
+    return (yield)
+            ^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/slac-timing/lib/python3.14/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/slac-timing/lib/python3.14/site-packages/_pytest/runner.py", line 179, in pytest_runtest_call
+    item.runtest()
+    ~~~~~~~~~~~~^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/slac-timing/lib/python3.14/site-packages/_pytest/python.py", line 1720, in runtest
+    self.ihook.pytest_pyfunc_call(pyfuncitem=self)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/slac-timing/lib/python3.14/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+           ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/slac-timing/lib/python3.14/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/slac-timing/lib/python3.14/site-packages/pluggy/_callers.py", line 167, in _multicall
+    raise exception
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/slac-timing/lib/python3.14/site-packages/pluggy/_callers.py", line 139, in _multicall
+    teardown.throw(exception)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/slac-timing/lib/python3.14/site-packages/pluggy/_callers.py", line 53, in run_old_style_hookwrapper
+    return result.get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/slac-timing/lib/python3.14/site-packages/pluggy/_result.py", line 103, in get_result
+    raise exc.with_traceback(tb)
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/slac-timing/lib/python3.14/site-packages/pluggy/_callers.py", line 38, in run_old_style_hookwrapper
+    res = yield
+          ^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/slac-timing/lib/python3.14/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+  File "/opt/homebrew/Caskroom/miniconda/base/envs/slac-timing/lib/python3.14/site-packages/_pytest/python.py", line 166, in pytest_pyfunc_call
+    result = testfunction(**testargs)
+  File "/Users/efjy/dev/slac-timing/tests/event_definition/event_definition_test.py", line 103, in test_no_reservations
+    assert str(e.value) == "No event definitions available. pv=IOC:IN20:EV01:EDEFAVAIL, value=0"
+AssertionError: assert 'Could not re...VAIL, value=1' == 'No event def...VAIL, value=0'
+  
+  - No event definitions available. pv=IOC:IN20:EV01:EDEFAVAIL, value=0
+  + Could not reserve an EDEF.
+  + pv=EDEF:SYS0:1:NAME, value=nothing
+  + pv=EDEF:SYS0:2:NAME, value=nothing
+  + pv=EDEF:SYS0:3:NAME, value=nothing
+  + pv=EDEF:SYS0:4:NAME, value=nothing...
+  
+  ...Full output truncated (8 lines hidden), use '-vv' to show
+============================================================================ warnings summary =============================================================================
+event_definition_test.py:35
+  /Users/efjy/dev/slac-timing/tests/event_definition/event_definition_test.py:35: PytestUnknownMarkWarning: Unknown pytest.mark.ioc_yaml - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.ioc_yaml("fail_pvnames_ioc.yaml")
+
+event_definition_test.py:49
+  /Users/efjy/dev/slac-timing/tests/event_definition/event_definition_test.py:49: PytestUnknownMarkWarning: Unknown pytest.mark.ioc_yaml - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.ioc_yaml("fail_usernames_ioc.yaml")
+
+event_definition_test.py:63
+  /Users/efjy/dev/slac-timing/tests/event_definition/event_definition_test.py:63: PytestUnknownMarkWarning: Unknown pytest.mark.ioc_yaml - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.ioc_yaml("fail_available_ioc.yaml")
+
+event_definition_test.py:77
+  /Users/efjy/dev/slac-timing/tests/event_definition/event_definition_test.py:77: PytestUnknownMarkWarning: Unknown pytest.mark.ioc_yaml - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.ioc_yaml("no_reservations_ioc.yaml")
+
+event_definition_test.py:91
+  /Users/efjy/dev/slac-timing/tests/event_definition/event_definition_test.py:91: PytestUnknownMarkWarning: Unknown pytest.mark.ioc_yaml - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.ioc_yaml("could_not_reserve_edef_ioc.yaml")
+
+tests/event_definition/event_definition_test.py::test_slot_name_timeout
+tests/event_definition/event_definition_test.py::test_slot_username_timeout
+tests/event_definition/event_definition_test.py::test_fail_available_timeout
+tests/event_definition/event_definition_test.py::test_no_reservations
+  /opt/homebrew/Caskroom/miniconda/base/envs/slac-timing/lib/python3.14/site-packages/slicops/unit_util.py:174: DeprecationWarning: This process (pid=10021) is multi-threaded, use of fork() may lead to deadlocks in the child.
+    p = os.fork()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================================================================ 1 failed, 4 passed, 9 warnings in 28.23s =================================================================

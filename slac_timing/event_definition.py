@@ -4,22 +4,23 @@ from typing import Optional
 from pydantic import model_validator
 
 from slac_timing.buffer import Buffer, ReservationError
-from slac_timing.pvs import EventDefinitionPVs, EventDefinitionSystemPVs
+import slac_timing.pvs
+from pykern.pkdebug import pkdp
 
 
 _PREFIX = "EDEF:SYS0"
 _NUM_EDEF_SLOTS = 11
 _RESERVE_TIMEOUT_S = 5.0
-_SYSTEM = EventDefinitionSystemPVs()
+_SYSTEM = slac_timing.pvs.EventDefinitionSystemPVs()
+
+BEAMCODE_MAP = {
+    "CU_HXR": 1,
+    "CU_SXR": 2,
+}
 
 
 class EventDefinition(Buffer):
     """CU linac eDef buffer."""
-
-    BEAMCODE_MAP = {
-        "CU_HXR": 1,
-        "CU_SXR": 2,
-    }
 
     beamcode: int
     inclusion_masks: Optional[list] = None
@@ -29,8 +30,8 @@ class EventDefinition(Buffer):
     def pv_prefix(self) -> str:
         return f"{_PREFIX}:{self.number}"
 
-    def _create_pvs(self) -> EventDefinitionPVs:
-        return EventDefinitionPVs(self.pv_prefix)
+    def _create_pvs(self) -> slac_timing.pvs.EventDefinitionPVs:
+        return slac_timing.pvs.EventDefinitionPVs(self.pv_prefix)
 
     @model_validator(mode="after")
     def _init_reserve(self) -> "EventDefinition":
@@ -43,21 +44,45 @@ class EventDefinition(Buffer):
         return self
 
     def _reserve(self) -> int:
-        _SYSTEM.reserve_name.put(self.name, wait=True)
+        if not _SYSTEM.reserve_name.put(self.name, wait=True):
+            raise ReservationError(
+                f"Could not reach edef system pv={_SYSTEM.reserve_name.pvname}"
+            )
         elapsed = 0.0
+        current_name_list = [None] * 11
         while elapsed < _RESERVE_TIMEOUT_S:
             for num in range(1, _NUM_EDEF_SLOTS + 1):
-                edef_name = _SYSTEM.slot_names[num].get()
+                edef_name = _SYSTEM.slot_names[num].get(as_string=True)
+                if not edef_name:
+                    raise ReservationError(
+                        f"Could not reach edef system pv={_SYSTEM.slot_names[num].pvname}"
+                    )
                 if edef_name == self.name:
-                    _SYSTEM.slot_usernames[num].put(str(self.user))
+                    if not pkdp(
+                        _SYSTEM.slot_usernames[num].put(str(self.user), wait=True)
+                    ):
+                        raise ReservationError(
+                            f"Could not reach edef system pv={_SYSTEM.slot_usernames[num].pvname}"
+                        )
                     return num
+                current_name_list[num - 1] = edef_name
             time.sleep(0.05)
             elapsed += 0.05
 
         available = _SYSTEM.available.get()
-        if available is not None and available < 1:
-            raise ReservationError("No event definitions available.")
-        raise ReservationError("Could not reserve an EDEF.")
+        if available is None:
+            raise ReservationError(
+                f"Could not reach edef system pv={_SYSTEM.available.pvname}"
+            )
+        elif available is not None and available < 1:
+            raise ReservationError(
+                f"No event definitions available. pv={_SYSTEM.available.pvname}, value={available}"
+            )
+        msg = "Could not reserve an EDEF."
+        for num in range(1, _NUM_EDEF_SLOTS + 1):
+            msg += f"\npv={_SYSTEM.slot_names[num].pvname}, value={current_name_list[num - 1]}"
+        msg += f"\npv={_SYSTEM.available.pvname}, value={available}"
+        raise ReservationError(msg)
 
     def _configure(self) -> None:
         self.pvs.avgcnt.put(self.n_avg)
