@@ -32,13 +32,12 @@ class IndexedPVGroup:
     @property
     def pvnames(self) -> list[str]:
         return [
-            f"{self._prefix}:{self._suffix_template.format(i)}"
-            for i in self._indices
+            f"{self._prefix}:{self._suffix_template.format(i)}" for i in self._indices
         ]
 
-    def get_many(self) -> list:
+    def get_many(self, **kwargs) -> list:
         """Batch-read all PVs in this group via epics.caget_many."""
-        return epics.caget_many(self.pvnames)
+        return epics.caget_many(self.pvnames, **kwargs)
 
 
 # --- System PV Containers (reservation protocol) ---

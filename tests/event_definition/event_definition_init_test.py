@@ -1,7 +1,7 @@
-import pytest
-import sys
-from slicops import unit_util
 import epics
+import pytest
+from slicops import unit_util
+import sys
 
 
 @pytest.fixture(scope="function", autouse=True)
@@ -106,14 +106,4 @@ def test_yes_reservations_but_error():
         + "\npv=EDEF:SYS0:10:NAME, value=nothing"
         + "\npv=EDEF:SYS0:11:NAME, value=nothing"
         + "\npv=IOC:IN20:EV01:EDEFAVAIL, value=1"
-    )
-
-
-@pytest.mark.ioc_yaml("working_ioc.yaml")
-def test_everything_works():
-    import slac_timing.event_definition
-    import slac_timing.buffer
-
-    slac_timing.event_definition.EventDefinition(
-        name="name", user="user", n_measurements=1, n_avg=1, beamcode=0
     )

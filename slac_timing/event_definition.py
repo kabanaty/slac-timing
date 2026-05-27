@@ -5,7 +5,6 @@ from pydantic import model_validator
 
 from slac_timing.buffer import Buffer, ReservationError
 import slac_timing.pvs
-from pykern.pkdebug import pkdp
 
 
 _PREFIX = "EDEF:SYS0"
@@ -58,9 +57,7 @@ class EventDefinition(Buffer):
                         f"Could not reach edef system pv={_SYSTEM.slot_names[num].pvname}"
                     )
                 if edef_name == self.name:
-                    if not pkdp(
-                        _SYSTEM.slot_usernames[num].put(str(self.user), wait=True)
-                    ):
+                    if not _SYSTEM.slot_usernames[num].put(str(self.user), wait=True):
                         raise ReservationError(
                             f"Could not reach edef system pv={_SYSTEM.slot_usernames[num].pvname}"
                         )
@@ -85,9 +82,16 @@ class EventDefinition(Buffer):
         raise ReservationError(msg)
 
     def _configure(self) -> None:
-        self.pvs.avgcnt.put(self.n_avg)
-        self.pvs.meascnt.put(self.n_measurements)
-        self.pvs.beamcode.put(self.beamcode)
+        pv_values = {
+            "avgcnt": self.n_avg,
+            "meascnt": self.n_measurements,
+            "beamcode": self.beamcode,
+        }
+        for name, value in pv_values.items():
+            pv = getattr(self.pvs, name)
+            res = pv.put(value, wait=True)
+            if res is None:
+                raise ReservationError(f"PV Timed Out. pv={pv.pvname}")
         if self.inclusion_masks is not None:
             self._set_masks("inclusion", self.inclusion_masks)
         if self.exclusion_masks is not None:
@@ -132,14 +136,31 @@ class EventDefinition(Buffer):
             bit_mask = bit_mask | (1 << (bit_num + 32))
         for modifier_num in (5, 4, 3, 2, 1):
             mod_mask = (bit_mask >> 32 * (modifier_num + 1)) & 0xFFFFFFFF
-            group[modifier_num].put(mod_mask, wait=True)
+            if not (res := group[modifier_num].put(mod_mask, wait=True)):
+                raise ReservationError(
+                    f"PV timed out. pv={group[modifier_num].pvname} value={res}"
+                )
             time.sleep(0.05)
 
     def _clear_masks(self, group) -> None:
-        for n in range(1, 6):
-            group[n].put(0, wait=True)
+        res = [group[n].put(0, wait=True) for n in range(1, 6)]
+        if not all(res):
+            msg = "PV timed out."
+            for i in range(0, len(res)):
+                msg += f"\npv={group[i + 1].pvname}, value={res[i]}"
+            raise ReservationError(msg)
 
     def _get_mask_cache(self) -> dict:
-        names = self.pvs.pnbn_names.get_many()
+        names = self.pvs.pnbn_names.get_many(as_string=True)
+        if not all(names):
+            msg = "PV timed out."
+            for i in range(0, len(names)):
+                msg += f"\npv={self.pvs.pnbn_names[i + 1].pvname}, value={names[i]}"
+            raise ReservationError(msg)
         positions = self.pvs.pnbn_positions.get_many()
+        if not all(positions):
+            msg = "PV timed out."
+            for i in range(0, len(names)):
+                msg += f"\npv={self.pvs.pnbn_positions[i + 1].pvname}, value={positions[i]}"
+            raise ReservationError(msg)
         return dict(zip(names, positions))
