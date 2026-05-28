@@ -1,5 +1,5 @@
 import epics
-from slac_devices.device import LazyPV
+from slac_tools import LazyPV
 
 
 class IndexedPVGroup:
