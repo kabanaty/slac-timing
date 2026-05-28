@@ -1,5 +1,5 @@
 import time
-from typing import Optional
+from typing import ClassVar, Optional
 
 from pydantic import model_validator
 
@@ -12,14 +12,14 @@ _NUM_EDEF_SLOTS = 11
 _RESERVE_TIMEOUT_S = 5.0
 _SYSTEM = slac_timing.pvs.EventDefinitionSystemPVs()
 
-BEAMCODE_MAP = {
-    "CU_HXR": 1,
-    "CU_SXR": 2,
-}
-
 
 class EventDefinition(Buffer):
     """CU linac eDef buffer."""
+
+    BEAMCODE_MAP: ClassVar[dict[str, int]] = {
+        "CU_HXR": 1,
+        "CU_SXR": 2,
+    }
 
     beamcode: int
     inclusion_masks: Optional[list] = None

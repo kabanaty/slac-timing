@@ -18,7 +18,7 @@ dependencies = [
     "numpy",
     "pydantic",
     "pyepics",
-    "slac-devices @ git+https://github.com/slaclab/slac-devices.git@main",
+    "slac-tools @ git+https://github.com/slaclab/slac-tools.git@main",
 ]
 description = "Timing buffer interface for LCLS beam synchronous acquisition"
 name = "slac-timing"
