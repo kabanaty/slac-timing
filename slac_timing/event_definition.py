@@ -4,13 +4,13 @@ from typing import ClassVar, Optional
 from pydantic import model_validator
 
 from slac_timing.buffer import Buffer, ReservationError
-from slac_timing.pvs import EventDefinitionPVs, EventDefinitionSystemPVs
+import slac_timing.pvs
 
 
 _PREFIX = "EDEF:SYS0"
 _NUM_EDEF_SLOTS = 11
 _RESERVE_TIMEOUT_S = 5.0
-_SYSTEM = EventDefinitionSystemPVs()
+_SYSTEM = slac_timing.pvs.EventDefinitionSystemPVs()
 
 
 class EventDefinition(Buffer):
@@ -29,8 +29,8 @@ class EventDefinition(Buffer):
     def pv_prefix(self) -> str:
         return f"{_PREFIX}:{self.number}"
 
-    def _create_pvs(self) -> EventDefinitionPVs:
-        return EventDefinitionPVs(self.pv_prefix)
+    def _create_pvs(self) -> slac_timing.pvs.EventDefinitionPVs:
+        return slac_timing.pvs.EventDefinitionPVs(self.pv_prefix)
 
     @model_validator(mode="after")
     def _init_reserve(self) -> "EventDefinition":
@@ -43,26 +43,55 @@ class EventDefinition(Buffer):
         return self
 
     def _reserve(self) -> int:
-        _SYSTEM.reserve_name.put(self.name, wait=True)
+        if not _SYSTEM.reserve_name.put(self.name, wait=True):
+            raise ReservationError(
+                f"Could not reach edef system pv={_SYSTEM.reserve_name.pvname}"
+            )
         elapsed = 0.0
+        current_name_list = [None] * 11
         while elapsed < _RESERVE_TIMEOUT_S:
             for num in range(1, _NUM_EDEF_SLOTS + 1):
-                edef_name = _SYSTEM.slot_names[num].get()
+                edef_name = _SYSTEM.slot_names[num].get(as_string=True)
+                if not edef_name:
+                    raise ReservationError(
+                        f"Could not reach edef system pv={_SYSTEM.slot_names[num].pvname}"
+                    )
                 if edef_name == self.name:
-                    _SYSTEM.slot_usernames[num].put(str(self.user))
+                    if not _SYSTEM.slot_usernames[num].put(str(self.user), wait=True):
+                        raise ReservationError(
+                            f"Could not reach edef system pv={_SYSTEM.slot_usernames[num].pvname}"
+                        )
                     return num
+                current_name_list[num - 1] = edef_name
             time.sleep(0.05)
             elapsed += 0.05
 
         available = _SYSTEM.available.get()
-        if available is not None and available < 1:
-            raise ReservationError("No event definitions available.")
-        raise ReservationError("Could not reserve an EDEF.")
+        if available is None:
+            raise ReservationError(
+                f"Could not reach edef system pv={_SYSTEM.available.pvname}"
+            )
+        elif available is not None and available < 1:
+            raise ReservationError(
+                f"No event definitions available. pv={_SYSTEM.available.pvname}, value={available}"
+            )
+        msg = "Could not reserve an EDEF."
+        for num in range(1, _NUM_EDEF_SLOTS + 1):
+            msg += f"\npv={_SYSTEM.slot_names[num].pvname}, value={current_name_list[num - 1]}"
+        msg += f"\npv={_SYSTEM.available.pvname}, value={available}"
+        raise ReservationError(msg)
 
     def _configure(self) -> None:
-        self.pvs.avgcnt.put(self.n_avg)
-        self.pvs.meascnt.put(self.n_measurements)
-        self.pvs.beamcode.put(self.beamcode)
+        pv_values = {
+            "avgcnt": self.n_avg,
+            "meascnt": self.n_measurements,
+            "beamcode": self.beamcode,
+        }
+        for name, value in pv_values.items():
+            pv = getattr(self.pvs, name)
+            res = pv.put(value, wait=True)
+            if res is None:
+                raise ReservationError(f"PV Timed Out. pv={pv.pvname}")
         if self.inclusion_masks is not None:
             self._set_masks("inclusion", self.inclusion_masks)
         if self.exclusion_masks is not None:
@@ -107,14 +136,31 @@ class EventDefinition(Buffer):
             bit_mask = bit_mask | (1 << (bit_num + 32))
         for modifier_num in (5, 4, 3, 2, 1):
             mod_mask = (bit_mask >> 32 * (modifier_num + 1)) & 0xFFFFFFFF
-            group[modifier_num].put(mod_mask, wait=True)
+            if not (res := group[modifier_num].put(mod_mask, wait=True)):
+                raise ReservationError(
+                    f"PV timed out. pv={group[modifier_num].pvname} value={res}"
+                )
             time.sleep(0.05)
 
     def _clear_masks(self, group) -> None:
-        for n in range(1, 6):
-            group[n].put(0, wait=True)
+        res = [group[n].put(0, wait=True) for n in range(1, 6)]
+        if not all(r is not None for r in res):
+            msg = "PV timed out."
+            for i in range(0, len(res)):
+                msg += f"\npv={group[i + 1].pvname}, value={res[i]}"
+            raise ReservationError(msg)
 
     def _get_mask_cache(self) -> dict:
-        names = self.pvs.pnbn_names.get_many()
+        names = self.pvs.pnbn_names.get_many(as_string=True)
+        if not all(n is not None for n in names):
+            msg = "PV timed out."
+            for i in range(0, len(names)):
+                msg += f"\npv={self.pvs.pnbn_names[i + 1].pvname}, value={names[i]}"
+            raise ReservationError(msg)
         positions = self.pvs.pnbn_positions.get_many()
+        if not all(n is not None for n in positions):
+            msg = "PV timed out."
+            for i in range(0, len(names)):
+                msg += f"\npv={self.pvs.pnbn_positions[i + 1].pvname}, value={positions[i]}"
+            raise ReservationError(msg)
         return dict(zip(names, positions))

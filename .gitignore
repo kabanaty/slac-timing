@@ -35,3 +35,7 @@ CVS
 
 # claude
 CLAUDE.md
+
+# tests
+*.log
+*_work
