@@ -1,6 +1,7 @@
 import epics
 import gc
 import pytest
+from slac_timing.buffer import ReservationError
 from slicops import unit_util
 import sys
 
@@ -26,9 +27,8 @@ def reset_event_definition(request):
 @pytest.mark.ioc_yaml("fail_config_pvs.yaml")
 def test_fail_config_pvs():
     import slac_timing.event_definition
-    import slac_timing.buffer
 
-    with pytest.raises(slac_timing.buffer.ReservationError) as e:
+    with pytest.raises(ReservationError) as e:
         slac_timing.event_definition.EventDefinition(
             name="name", user="user", n_measurements=1, n_avg=1, beamcode=0
         )
@@ -38,9 +38,8 @@ def test_fail_config_pvs():
 @pytest.mark.ioc_yaml("fail_clear_mask_pvs.yaml")
 def test_fail_clear_masks_pvs():
     import slac_timing.event_definition
-    import slac_timing.buffer
 
-    with pytest.raises(slac_timing.buffer.ReservationError) as e:
+    with pytest.raises(ReservationError) as e:
         slac_timing.event_definition.EventDefinition(
             name="name",
             user="user",
@@ -58,9 +57,8 @@ def test_fail_clear_masks_pvs():
 @pytest.mark.ioc_yaml("fail_mask_name_pvs.yaml")
 def test_fail_mask_name_pvs():
     import slac_timing.event_definition
-    import slac_timing.buffer
 
-    with pytest.raises(slac_timing.buffer.ReservationError) as e:
+    with pytest.raises(ReservationError) as e:
         slac_timing.event_definition.EventDefinition(
             name="name",
             user="user",
@@ -78,9 +76,8 @@ def test_fail_mask_name_pvs():
 @pytest.mark.ioc_yaml("fail_mask_pos_pvs.yaml")
 def test_fail_mask_pos_pvs():
     import slac_timing.event_definition
-    import slac_timing.buffer
 
-    with pytest.raises(slac_timing.buffer.ReservationError) as e:
+    with pytest.raises(ReservationError) as e:
         slac_timing.event_definition.EventDefinition(
             name="name",
             user="user",

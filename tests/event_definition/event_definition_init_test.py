@@ -1,6 +1,7 @@
 import gc
 import epics
 import pytest
+from slac_timing.buffer import ReservationError
 from slicops import unit_util
 import sys
 
@@ -24,11 +25,9 @@ def reset_event_definition(request):
 
 
 def test_edef_name_timeout():
-    import pytest
     import slac_timing.event_definition
-    import slac_timing.buffer
 
-    with pytest.raises(slac_timing.buffer.ReservationError) as e:
+    with pytest.raises(ReservationError) as e:
         slac_timing.event_definition.EventDefinition(
             name="name", user="user", n_measurements=1, n_avg=1, beamcode=0
         )
@@ -38,9 +37,8 @@ def test_edef_name_timeout():
 @pytest.mark.ioc_yaml("fail_pvnames_ioc.yaml")
 def test_slot_name_timeout():
     import slac_timing.event_definition
-    import slac_timing.buffer
 
-    with pytest.raises(slac_timing.buffer.ReservationError) as e:
+    with pytest.raises(ReservationError) as e:
         slac_timing.event_definition.EventDefinition(
             name="name", user="user", n_measurements=1, n_avg=1, beamcode=0
         )
@@ -50,9 +48,8 @@ def test_slot_name_timeout():
 @pytest.mark.ioc_yaml("fail_usernames_ioc.yaml")
 def test_slot_username_timeout():
     import slac_timing.event_definition
-    import slac_timing.buffer
 
-    with pytest.raises(slac_timing.buffer.ReservationError) as e:
+    with pytest.raises(ReservationError) as e:
         slac_timing.event_definition.EventDefinition(
             name="name", user="user", n_measurements=1, n_avg=1, beamcode=0
         )
@@ -62,9 +59,8 @@ def test_slot_username_timeout():
 @pytest.mark.ioc_yaml("fail_available_ioc.yaml")
 def test_fail_available_timeout():
     import slac_timing.event_definition
-    import slac_timing.buffer
 
-    with pytest.raises(slac_timing.buffer.ReservationError) as e:
+    with pytest.raises(ReservationError) as e:
         slac_timing.event_definition.EventDefinition(
             name="name", user="user", n_measurements=1, n_avg=1, beamcode=0
         )
@@ -74,9 +70,8 @@ def test_fail_available_timeout():
 @pytest.mark.ioc_yaml("no_reservations_ioc.yaml")
 def test_no_reservations():
     import slac_timing.event_definition
-    import slac_timing.buffer
 
-    with pytest.raises(slac_timing.buffer.ReservationError) as e:
+    with pytest.raises(ReservationError) as e:
         slac_timing.event_definition.EventDefinition(
             name="name", user="user", n_measurements=1, n_avg=1, beamcode=0
         )
@@ -89,9 +84,8 @@ def test_no_reservations():
 @pytest.mark.ioc_yaml("could_not_reserve_edef_ioc.yaml")
 def test_yes_reservations_but_error():
     import slac_timing.event_definition
-    import slac_timing.buffer
 
-    with pytest.raises(slac_timing.buffer.ReservationError) as e:
+    with pytest.raises(ReservationError) as e:
         slac_timing.event_definition.EventDefinition(
             name="name", user="user", n_measurements=1, n_avg=1, beamcode=0
         )
