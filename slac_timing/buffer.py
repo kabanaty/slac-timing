@@ -1,4 +1,3 @@
-import gc
 import time as _time
 from abc import ABC, abstractmethod
 from typing import Optional
@@ -73,7 +72,27 @@ class Buffer(BaseModel, ABC):
         if self._pvs is not None:
             self._pvs.disconnect()
             self._pvs = None
-            gc.collect()  # Force garbage collection to clean up PVs
+        self._clear_ca_cache()
+
+    def _clear_ca_cache(self) -> None:
+        """Remove caget-created channels for this buffer from the CA cache."""
+        import epics.ca
+
+        ctx = epics.ca.current_context()
+        if ctx is None:
+            return
+        context_cache = epics.ca._cache.get(ctx)
+        if context_cache is None:
+            return
+        suffix = f"HST{self.number}"
+        stale = [name for name in context_cache if name.endswith(suffix)]
+        for name in stale:
+            entry = context_cache.pop(name, None)
+            if entry is not None and entry.chid is not None:
+                try:
+                    epics.ca.clear_channel(entry.chid)
+                except Exception:
+                    pass
 
     def is_reserved(self) -> bool:
         return self.number is not None and self.number != 0
