@@ -84,6 +84,7 @@ class Buffer(BaseModel, ABC):
             return
 
         suffix = f"HST{self.number}"
+
         stale_pvids = [
             pvid for pvid in list(_PVcache_)
             if pvid[0].endswith(suffix)
@@ -95,6 +96,18 @@ class Buffer(BaseModel, ABC):
                     pv_obj.disconnect()
                 except BaseException:
                     pass
+
+        context_cache = epics.ca._cache.get(ctx)
+        if context_cache is None:
+            return
+        stale_names = [name for name in context_cache if name.endswith(suffix)]
+        for name in stale_names:
+            entry = context_cache.get(name)
+            if entry is not None and getattr(entry, "chid", None) is not None:
+                try:
+                    epics.ca.clear_channel(entry.chid)
+                except BaseException:
+                    context_cache.pop(name, None)
 
     def is_reserved(self) -> bool:
         return self.number is not None and self.number != 0
