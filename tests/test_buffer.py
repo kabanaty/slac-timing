@@ -185,7 +185,7 @@ class TestClearCaCache:
         assert ("OTHER:PV:HST2",) in pv_cache
         pv_obj.disconnect.assert_called_once()
 
-    def test_disconnect_exception_does_not_propagate(self, buffer):
+    def test_disconnect_exception_propagates(self, buffer):
         pv_obj = MagicMock()
         pv_obj.disconnect.side_effect = RuntimeError("dead channel")
         pv_cache = {("SOME:PV:HST1",): pv_obj}
@@ -193,9 +193,8 @@ class TestClearCaCache:
              patch("slac_timing.buffer._PVcache_", pv_cache):
             mock_ca.current_context.return_value = "ctx"
             mock_ca._cache.get.return_value = None
-            buffer._clear_ca_cache()
-
-        assert ("SOME:PV:HST1",) not in pv_cache
+            with pytest.raises(RuntimeError, match="dead channel"):
+                buffer._clear_ca_cache()
 
     def test_clears_matching_context_cache_entries(self, buffer):
         entry = SimpleNamespace(chid=42)
@@ -209,7 +208,7 @@ class TestClearCaCache:
         mock_ca.clear_channel.assert_called_once_with(42)
         assert "OTHER:PV:HST2" in context_cache
 
-    def test_context_cache_entry_removed_on_clear_channel_failure(self, buffer):
+    def test_clear_channel_failure_propagates(self, buffer):
         entry = SimpleNamespace(chid=42)
         context_cache = {"SOME:PV:HST1": entry}
         with patch("slac_timing.buffer.epics.ca") as mock_ca, \
@@ -217,9 +216,8 @@ class TestClearCaCache:
             mock_ca.current_context.return_value = "ctx"
             mock_ca._cache.get.return_value = context_cache
             mock_ca.clear_channel.side_effect = RuntimeError("stale chid")
-            buffer._clear_ca_cache()
-
-        assert "SOME:PV:HST1" not in context_cache
+            with pytest.raises(RuntimeError, match="stale chid"):
+                buffer._clear_ca_cache()
 
     def test_skips_entry_without_chid(self, buffer):
         entry = SimpleNamespace(chid=None)
