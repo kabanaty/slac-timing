@@ -1,4 +1,5 @@
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -156,3 +157,76 @@ class TestGetMany:
         with patch("epics.caget_many", side_effect=[short_batch, ok_batch]):
             result = buffer.get_many(["PV:A", "PV:B"], retries=2, retry_delay=0)
         np.testing.assert_array_equal(result["PV:A"], np.arange(5, dtype=float))
+
+
+class TestClearCaCache:
+    """Tests for _clear_ca_cache and its nested helpers."""
+
+    def test_noop_when_no_context(self, buffer):
+        with patch("slac_timing.buffer.epics.ca") as mock_ca, \
+             patch("slac_timing.buffer._PVcache_", {}):
+            mock_ca.current_context.return_value = None
+            buffer._clear_ca_cache()
+            mock_ca._cache.get.assert_not_called()
+
+    def test_clears_matching_pv_objects(self, buffer):
+        pv_obj = MagicMock()
+        pv_cache = {
+            ("SOME:PV:HST1",): pv_obj,
+            ("OTHER:PV:HST2",): MagicMock(),
+        }
+        with patch("slac_timing.buffer.epics.ca") as mock_ca, \
+             patch("slac_timing.buffer._PVcache_", pv_cache):
+            mock_ca.current_context.return_value = "ctx"
+            mock_ca._cache.get.return_value = None
+            buffer._clear_ca_cache()
+
+        assert ("SOME:PV:HST1",) not in pv_cache
+        assert ("OTHER:PV:HST2",) in pv_cache
+        pv_obj.disconnect.assert_called_once()
+
+    def test_disconnect_exception_propagates(self, buffer):
+        pv_obj = MagicMock()
+        pv_obj.disconnect.side_effect = RuntimeError("dead channel")
+        pv_cache = {("SOME:PV:HST1",): pv_obj}
+        with patch("slac_timing.buffer.epics.ca") as mock_ca, \
+             patch("slac_timing.buffer._PVcache_", pv_cache):
+            mock_ca.current_context.return_value = "ctx"
+            mock_ca._cache.get.return_value = None
+            with pytest.raises(RuntimeError, match="dead channel"):
+                buffer._clear_ca_cache()
+
+    def test_clears_matching_context_cache_entries(self, buffer):
+        entry = SimpleNamespace(chid=42)
+        context_cache = {"SOME:PV:HST1": entry, "OTHER:PV:HST2": SimpleNamespace(chid=99)}
+        with patch("slac_timing.buffer.epics.ca") as mock_ca, \
+             patch("slac_timing.buffer._PVcache_", {}):
+            mock_ca.current_context.return_value = "ctx"
+            mock_ca._cache.get.return_value = context_cache
+            buffer._clear_ca_cache()
+
+        mock_ca.clear_channel.assert_called_once_with(42)
+        assert "OTHER:PV:HST2" in context_cache
+
+    def test_clear_channel_failure_propagates(self, buffer):
+        entry = SimpleNamespace(chid=42)
+        context_cache = {"SOME:PV:HST1": entry}
+        with patch("slac_timing.buffer.epics.ca") as mock_ca, \
+             patch("slac_timing.buffer._PVcache_", {}):
+            mock_ca.current_context.return_value = "ctx"
+            mock_ca._cache.get.return_value = context_cache
+            mock_ca.clear_channel.side_effect = RuntimeError("stale chid")
+            with pytest.raises(RuntimeError, match="stale chid"):
+                buffer._clear_ca_cache()
+
+    def test_skips_entry_without_chid(self, buffer):
+        entry = SimpleNamespace(chid=None)
+        context_cache = {"SOME:PV:HST1": entry}
+        with patch("slac_timing.buffer.epics.ca") as mock_ca, \
+             patch("slac_timing.buffer._PVcache_", {}):
+            mock_ca.current_context.return_value = "ctx"
+            mock_ca._cache.get.return_value = context_cache
+            buffer._clear_ca_cache()
+
+        mock_ca.clear_channel.assert_not_called()
+        assert "SOME:PV:HST1" in context_cache
