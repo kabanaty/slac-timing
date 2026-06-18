@@ -2,7 +2,9 @@ import time as _time
 from abc import ABC, abstractmethod
 from typing import Optional
 
+import epics.ca
 import numpy as np
+from epics.pv import _PVcache_
 from pydantic import BaseModel, ConfigDict, PrivateAttr
 
 from slac_timing.pvs import BufferPVs
@@ -66,48 +68,6 @@ class Buffer(BaseModel, ABC):
     def release(self) -> None:
         """Release the buffer back to the system."""
         ...
-
-    def _disconnect_pvs(self) -> None:
-        """Disconnect all PV connections held by this buffer."""
-        if self._pvs is not None:
-            self._pvs.disconnect()
-            self._pvs = None
-        self._clear_ca_cache()
-
-    def _clear_ca_cache(self) -> None:
-        """Remove caget-created channels for this buffer from the CA cache."""
-        import epics.ca
-        from epics.pv import _PVcache_
-
-        ctx = epics.ca.current_context()
-        if ctx is None:
-            return
-
-        suffix = f"HST{self.number}"
-
-        stale_pvids = [
-            pvid for pvid in list(_PVcache_)
-            if pvid[0].endswith(suffix)
-        ]
-        for pvid in stale_pvids:
-            pv_obj = _PVcache_.pop(pvid, None)
-            if pv_obj is not None:
-                try:
-                    pv_obj.disconnect()
-                except BaseException:
-                    pass
-
-        context_cache = epics.ca._cache.get(ctx)
-        if context_cache is None:
-            return
-        stale_names = [name for name in context_cache if name.endswith(suffix)]
-        for name in stale_names:
-            entry = context_cache.get(name)
-            if entry is not None and getattr(entry, "chid", None) is not None:
-                try:
-                    epics.ca.clear_channel(entry.chid)
-                except BaseException:
-                    context_cache.pop(name, None)
 
     def is_reserved(self) -> bool:
         return self.number is not None and self.number != 0
@@ -293,4 +253,46 @@ class Buffer(BaseModel, ABC):
                 results[pv] = data
         return results
 
+    def _disconnect_pvs(self) -> None:
+        """Disconnect all PV connections held by this buffer."""
+        if self._pvs is not None:
+            self._pvs.disconnect()
+            self._pvs = None
+        self._clear_ca_cache()
 
+    def _clear_ca_cache(self) -> None:
+        """Remove caget-created channels for this buffer from the CA cache."""
+        ctx = epics.ca.current_context()
+        if ctx is None:
+            return
+
+        suffix = f"HST{self.number}"
+
+        def clear_pv_object_cache():
+            stale_pvids = [
+                pvid for pvid in list(_PVcache_)
+                if pvid[0].endswith(suffix)
+            ]
+            for pvid in stale_pvids:
+                pv_obj = _PVcache_.pop(pvid, None)
+                if pv_obj is not None:
+                    try:
+                        pv_obj.disconnect()
+                    except BaseException:
+                        pass
+
+        def clear_context_cache():
+            context_cache = epics.ca._cache.get(ctx)
+            if context_cache is None:
+                return
+            stale_names = [name for name in context_cache if name.endswith(suffix)]
+            for name in stale_names:
+                entry = context_cache.get(name)
+                if entry is not None and getattr(entry, "chid", None) is not None:
+                    try:
+                        epics.ca.clear_channel(entry.chid)
+                    except BaseException:
+                        context_cache.pop(name, None)
+
+        clear_pv_object_cache()
+        clear_context_cache()
