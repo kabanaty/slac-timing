@@ -102,7 +102,7 @@ class EventDefinition(Buffer):
     def release(self) -> None:
         self._require_reserved("release")
         self.pvs.free.put(1)
-        self._disconnect_pvs()
+        self._clear_ca_cache()
 
     # --- Acquisition ---
 
