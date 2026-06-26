@@ -267,9 +267,7 @@ class Buffer(BaseModel, ABC):
                 if pvid[0].endswith(suffix)
             ]
             for pvid in stale_pvids:
-                pv_obj = _PVcache_.pop(pvid, None)
-                if pv_obj is not None:
-                    pv_obj.disconnect()
+                _PVcache_.pop(pvid, None)
 
         def clear_context_cache():
             context_cache = epics.ca._cache.get(ctx)
