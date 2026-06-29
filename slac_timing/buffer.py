@@ -261,24 +261,22 @@ class Buffer(BaseModel, ABC):
 
         suffix = f"HST{self.number}"
 
-        def clear_pv_object_cache():
-            stale_pvids = [
-                pvid for pvid in list(_PVcache_)
-                if pvid[0].endswith(suffix)
-            ]
-            for pvid in stale_pvids:
-                _PVcache_.pop(pvid, None)
+        stale_pvids = [
+            (pvname, form, context) for pvname, form, context in list(_PVcache_)
+            if pvname.endswith(suffix)
+        ]
+        for pvid in stale_pvids:
+            pv_obj = _PVcache_.pop(pvid, None)
+            if pv_obj is not None and pv_obj._monref is not None:
+                pv_obj._clear_auto_monitor_subscription()
 
-        def clear_context_cache():
-            context_cache = epics.ca._cache.get(ctx)
-            if context_cache is None:
-                return
-            stale_names = [name for name in context_cache if name.endswith(suffix)]
-            for name in stale_names:
-                entry = context_cache.get(name)
-                if entry is not None and getattr(entry, "chid", None) is not None:
-                    epics.ca.clear_channel(entry.chid)
-                    context_cache.pop(name, None)
+        epics.ca.poll(evt=1.e-3, iot=1.0)
 
-        clear_pv_object_cache()
-        clear_context_cache()
+        context_cache = epics.ca._cache.get(ctx)
+        if context_cache is None:
+            return
+        stale_names = [name for name in context_cache if name.endswith(suffix)]
+        for name in stale_names:
+            entry = context_cache.get(name)
+            if entry is not None and getattr(entry, "chid", None) is not None:
+                epics.ca.clear_channel(entry.chid)
