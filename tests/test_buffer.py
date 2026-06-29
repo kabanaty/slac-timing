@@ -171,9 +171,10 @@ class TestClearCaCache:
 
     def test_clears_matching_pv_objects(self, buffer):
         pv_obj = MagicMock()
+        pv_obj._monref = ("cb", "mask", "evid")
         pv_cache = {
-            ("SOME:PV:HST1",): pv_obj,
-            ("OTHER:PV:HST2",): MagicMock(),
+            ("SOME:PV:HST1", "native", "ctx"): pv_obj,
+            ("OTHER:PV:HST2", "native", "ctx"): MagicMock(),
         }
         with patch("slac_timing.buffer.epics.ca") as mock_ca, \
              patch("slac_timing.buffer._PVcache_", pv_cache):
@@ -181,14 +182,15 @@ class TestClearCaCache:
             mock_ca._cache.get.return_value = None
             buffer._clear_ca_cache()
 
-        assert ("SOME:PV:HST1",) not in pv_cache
-        assert ("OTHER:PV:HST2",) in pv_cache
-        pv_obj.disconnect.assert_called_once()
+        assert ("SOME:PV:HST1", "native", "ctx") not in pv_cache
+        assert ("OTHER:PV:HST2", "native", "ctx") in pv_cache
+        pv_obj._clear_auto_monitor_subscription.assert_called_once()
 
-    def test_disconnect_exception_propagates(self, buffer):
+    def test_clear_subscription_exception_propagates(self, buffer):
         pv_obj = MagicMock()
-        pv_obj.disconnect.side_effect = RuntimeError("dead channel")
-        pv_cache = {("SOME:PV:HST1",): pv_obj}
+        pv_obj._monref = ("cb", "mask", "evid")
+        pv_obj._clear_auto_monitor_subscription.side_effect = RuntimeError("dead channel")
+        pv_cache = {("SOME:PV:HST1", "native", "ctx"): pv_obj}
         with patch("slac_timing.buffer.epics.ca") as mock_ca, \
              patch("slac_timing.buffer._PVcache_", pv_cache):
             mock_ca.current_context.return_value = "ctx"
