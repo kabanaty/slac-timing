@@ -158,11 +158,12 @@ class Buffer(BaseModel, ABC):
                 data = self._fetch_single(epics, pv)
             else:
                 if data is None or len(data) != self.n_measurements:
-                    raise BufferSizeError(
-                        f"Expected {self.n_measurements} points for {pv}, "
-                        f"got {len(data) if data is not None else 'None'} "
-                        f"after {retries} retries."
-                    )
+                    if not pad:
+                        raise BufferSizeError(
+                            f"Expected {self.n_measurements} points for {pv}, "
+                            f"got {len(data) if data is not None else 'None'} "
+                            f"after {retries} retries."
+                        )
 
         return self._apply_pad(data, pad, fill_value)
 
@@ -199,9 +200,10 @@ class Buffer(BaseModel, ABC):
                 results = self._fetch_many(epics, pvs)
             else:
                 if not self._batch_sizes_ok(results):
-                    raise BufferSizeError(
-                        f"Batch size mismatch after {retries} retries."
-                    )
+                    if not pad:
+                        raise BufferSizeError(
+                            f"Batch size mismatch after {retries} retries."
+                        )
 
         if pad:
             return {pv: self._apply_pad(data, pad, fill_value) for pv, data in results.items()}
