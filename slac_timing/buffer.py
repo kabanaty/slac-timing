@@ -2,9 +2,7 @@ import time as _time
 from abc import ABC, abstractmethod
 from typing import Optional
 
-import epics.ca
 import numpy as np
-from epics.pv import _PVcache_
 from pydantic import BaseModel, ConfigDict, PrivateAttr
 
 from slac_timing.pvs import BufferPVs
@@ -235,12 +233,30 @@ class Buffer(BaseModel, ABC):
         return True
 
     def _fetch_single(self, epics, pv: str) -> Optional[np.ndarray]:
-        data = epics.caget(self.buffer_pv(pv))
+        # Avoids calling epics.caget() which silently creates a persistent CA monitor on this PV.
+        p = epics.PV(self.buffer_pv(pv), auto_monitor=False)
+        # timeout=5.0 matches epics.caget()'s original default.
+        data = p.get(use_monitor=False, timeout=5.0)
+        self._clear_pv_state(epics, p)
         if data is None:
             return None
         if self.n_measurements > 0:
             return data[: self.n_measurements]
         return data
+
+    def _clear_pv_state(self, epics, pv) -> None:
+        """Disconnect pv and discard pyepics' cached last-read value for it."""
+        pv.disconnect()
+        ctx = epics.ca.current_context()
+        if ctx is None:
+            return
+        # No public pyepics API for this -- reaches into epics.ca's internals.
+        context_cache = epics.ca._cache.get(ctx)
+        if context_cache is None:
+            return
+        entry = context_cache.get(pv.pvname)
+        if entry is not None:
+            entry.get_results.clear()
 
     def _fetch_many(self, epics, pvs: list[str]) -> dict[str, Optional[np.ndarray]]:
         hst_pvs = [self.buffer_pv(pv) for pv in pvs]
@@ -254,35 +270,3 @@ class Buffer(BaseModel, ABC):
             else:
                 results[pv] = data
         return results
-
-    def _clear_ca_cache(self) -> None:
-        """Remove caget-created channels for this buffer from the CA cache."""
-        ctx = epics.ca.current_context()
-        if ctx is None:
-            return
-
-        suffix = f"HST{self.number}"
-
-        def clear_pv_object_cache():
-            stale_pvids = [
-                pvid for pvid in list(_PVcache_)
-                if pvid[0].endswith(suffix)
-            ]
-            for pvid in stale_pvids:
-                pv_obj = _PVcache_.pop(pvid, None)
-                if pv_obj is not None:
-                    pv_obj.disconnect()
-
-        def clear_context_cache():
-            context_cache = epics.ca._cache.get(ctx)
-            if context_cache is None:
-                return
-            stale_names = [name for name in context_cache if name.endswith(suffix)]
-            for name in stale_names:
-                entry = context_cache.get(name)
-                if entry is not None and getattr(entry, "chid", None) is not None:
-                    epics.ca.clear_channel(entry.chid)
-                    context_cache.pop(name, None)
-
-        clear_pv_object_cache()
-        clear_context_cache()

@@ -1,4 +1,4 @@
-from types import SimpleNamespace
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -47,54 +47,81 @@ def buffer():
     return buf
 
 
+@contextmanager
+def _mock_pv(*, return_value=None, side_effect=None):
+    """Patch epics.PV so _fetch_single()'s epics.PV(...).get(...) can be
+    scripted the way these tests used to script epics.caget() directly,
+    before the auto_monitor=False fix.
+    """
+    mock_pv = MagicMock()
+    if side_effect is not None:
+        mock_pv.get.side_effect = side_effect
+    else:
+        mock_pv.get.return_value = return_value
+    with patch("epics.PV", return_value=mock_pv):
+        yield mock_pv
+
+
 class TestGetBackwardCompat:
     def test_returns_truncated_data(self, buffer):
         raw = np.arange(10, dtype=float)
-        with patch("epics.caget", return_value=raw):
+        with _mock_pv(return_value=raw):
             result = buffer.get("SOME:PV")
         np.testing.assert_array_equal(result, np.arange(5, dtype=float))
 
     def test_returns_none_for_unreachable(self, buffer):
-        with patch("epics.caget", return_value=None):
+        with _mock_pv(return_value=None):
             assert buffer.get("SOME:PV") is None
 
     def test_short_data_returned_as_is_without_pad(self, buffer):
         raw = np.array([1.0, 2.0])
-        with patch("epics.caget", return_value=raw):
+        with _mock_pv(return_value=raw):
             result = buffer.get("SOME:PV")
         np.testing.assert_array_equal(result, np.array([1.0, 2.0]))
+
+    def test_disconnects_after_read(self, buffer):
+        raw = np.arange(5, dtype=float)
+        with _mock_pv(return_value=raw) as mock_pv:
+            buffer.get("SOME:PV")
+        mock_pv.disconnect.assert_called_once()
+
+    def test_reads_without_monitor(self, buffer):
+        raw = np.arange(5, dtype=float)
+        with _mock_pv(return_value=raw) as mock_pv:
+            buffer.get("SOME:PV")
+        mock_pv.get.assert_called_once_with(use_monitor=False, timeout=5.0)
 
 
 class TestGetPad:
     def test_pads_short_data(self, buffer):
         raw = np.array([1.0, 2.0, 3.0])
-        with patch("epics.caget", return_value=raw):
+        with _mock_pv(return_value=raw):
             result = buffer.get("SOME:PV", pad=True)
         assert len(result) == 5
         np.testing.assert_array_equal(result[:3], [1.0, 2.0, 3.0])
         assert np.isnan(result[3]) and np.isnan(result[4])
 
     def test_pads_none_to_full_array(self, buffer):
-        with patch("epics.caget", return_value=None):
+        with _mock_pv(return_value=None):
             result = buffer.get("SOME:PV", pad=True)
         assert len(result) == 5
         assert all(np.isnan(result))
 
     def test_custom_fill_value(self, buffer):
-        with patch("epics.caget", return_value=None):
+        with _mock_pv(return_value=None):
             result = buffer.get("SOME:PV", pad=True, fill_value=-1.0)
         np.testing.assert_array_equal(result, np.full(5, -1.0))
 
     def test_exact_size_data_unchanged(self, buffer):
         raw = np.arange(5, dtype=float)
-        with patch("epics.caget", return_value=raw):
+        with _mock_pv(return_value=raw):
             result = buffer.get("SOME:PV", pad=True)
         np.testing.assert_array_equal(result, raw)
 
     def test_no_pad_when_n_measurements_zero(self, buffer):
         buffer.__dict__["n_measurements"] = 0
         raw = np.array([1.0, 2.0])
-        with patch("epics.caget", return_value=raw):
+        with _mock_pv(return_value=raw):
             result = buffer.get("SOME:PV", pad=True)
         np.testing.assert_array_equal(result, raw)
 
@@ -103,36 +130,48 @@ class TestGetRetries:
     def test_retries_on_short_data_then_succeeds(self, buffer):
         short = np.array([1.0, 2.0])
         correct = np.arange(5, dtype=float)
-        with patch("epics.caget", side_effect=[short, short, correct]):
+        with _mock_pv(side_effect=[short, short, correct]):
             result = buffer.get("SOME:PV", retries=3, retry_delay=0)
         np.testing.assert_array_equal(result, correct)
 
     def test_raises_after_retries_exhausted(self, buffer):
         short = np.array([1.0, 2.0])
-        with patch("epics.caget", return_value=short):
+        with _mock_pv(return_value=short):
             with pytest.raises(BufferSizeError):
                 buffer.get("SOME:PV", retries=2, retry_delay=0)
 
     def test_raises_when_none_persists(self, buffer):
-        with patch("epics.caget", return_value=None):
+        with _mock_pv(return_value=None):
             with pytest.raises(BufferSizeError):
                 buffer.get("SOME:PV", retries=2, retry_delay=0)
 
     def test_no_retry_when_n_measurements_zero(self, buffer):
         buffer.__dict__["n_measurements"] = 0
-        with patch("epics.caget", return_value=np.array([1.0])) as mock:
+        with _mock_pv(return_value=np.array([1.0])) as mock_pv:
             buffer.get("SOME:PV", retries=3, retry_delay=0)
-        assert mock.call_count == 1
+        assert mock_pv.get.call_count == 1
 
 
 class TestGetPadWithRetries:
     def test_pad_applied_when_no_retries(self, buffer):
         short = np.array([1.0, 2.0])
-        with patch("epics.caget", return_value=short):
+        with _mock_pv(return_value=short):
             result = buffer.get("SOME:PV", pad=True)
         assert len(result) == 5
         np.testing.assert_array_equal(result[:2], [1.0, 2.0])
         assert np.isnan(result[2])
+
+
+class TestClearPvState:
+    def test_disconnects_and_clears_cached_value(self, buffer):
+        pv = MagicMock(pvname="SOME:PVHST1")
+        entry = MagicMock()
+        mock_epics = MagicMock()
+        mock_epics.ca.current_context.return_value = "ctx"
+        mock_epics.ca._cache.get.return_value = {"SOME:PVHST1": entry}
+        buffer._clear_pv_state(mock_epics, pv)
+        pv.disconnect.assert_called_once()
+        entry.get_results.clear.assert_called_once()
 
 
 class TestGetMany:
@@ -157,76 +196,3 @@ class TestGetMany:
         with patch("epics.caget_many", side_effect=[short_batch, ok_batch]):
             result = buffer.get_many(["PV:A", "PV:B"], retries=2, retry_delay=0)
         np.testing.assert_array_equal(result["PV:A"], np.arange(5, dtype=float))
-
-
-class TestClearCaCache:
-    """Tests for _clear_ca_cache and its nested helpers."""
-
-    def test_noop_when_no_context(self, buffer):
-        with patch("slac_timing.buffer.epics.ca") as mock_ca, \
-             patch("slac_timing.buffer._PVcache_", {}):
-            mock_ca.current_context.return_value = None
-            buffer._clear_ca_cache()
-            mock_ca._cache.get.assert_not_called()
-
-    def test_clears_matching_pv_objects(self, buffer):
-        pv_obj = MagicMock()
-        pv_cache = {
-            ("SOME:PV:HST1",): pv_obj,
-            ("OTHER:PV:HST2",): MagicMock(),
-        }
-        with patch("slac_timing.buffer.epics.ca") as mock_ca, \
-             patch("slac_timing.buffer._PVcache_", pv_cache):
-            mock_ca.current_context.return_value = "ctx"
-            mock_ca._cache.get.return_value = None
-            buffer._clear_ca_cache()
-
-        assert ("SOME:PV:HST1",) not in pv_cache
-        assert ("OTHER:PV:HST2",) in pv_cache
-        pv_obj.disconnect.assert_called_once()
-
-    def test_disconnect_exception_propagates(self, buffer):
-        pv_obj = MagicMock()
-        pv_obj.disconnect.side_effect = RuntimeError("dead channel")
-        pv_cache = {("SOME:PV:HST1",): pv_obj}
-        with patch("slac_timing.buffer.epics.ca") as mock_ca, \
-             patch("slac_timing.buffer._PVcache_", pv_cache):
-            mock_ca.current_context.return_value = "ctx"
-            mock_ca._cache.get.return_value = None
-            with pytest.raises(RuntimeError, match="dead channel"):
-                buffer._clear_ca_cache()
-
-    def test_clears_matching_context_cache_entries(self, buffer):
-        entry = SimpleNamespace(chid=42)
-        context_cache = {"SOME:PV:HST1": entry, "OTHER:PV:HST2": SimpleNamespace(chid=99)}
-        with patch("slac_timing.buffer.epics.ca") as mock_ca, \
-             patch("slac_timing.buffer._PVcache_", {}):
-            mock_ca.current_context.return_value = "ctx"
-            mock_ca._cache.get.return_value = context_cache
-            buffer._clear_ca_cache()
-
-        mock_ca.clear_channel.assert_called_once_with(42)
-        assert "OTHER:PV:HST2" in context_cache
-
-    def test_clear_channel_failure_propagates(self, buffer):
-        entry = SimpleNamespace(chid=42)
-        context_cache = {"SOME:PV:HST1": entry}
-        with patch("slac_timing.buffer.epics.ca") as mock_ca, \
-             patch("slac_timing.buffer._PVcache_", {}):
-            mock_ca.current_context.return_value = "ctx"
-            mock_ca._cache.get.return_value = context_cache
-            mock_ca.clear_channel.side_effect = RuntimeError("stale chid")
-            with pytest.raises(RuntimeError, match="stale chid"):
-                buffer._clear_ca_cache()
-
-    def test_skips_entry_without_chid(self, buffer):
-        entry = SimpleNamespace(chid=None)
-        context_cache = {"SOME:PV:HST1": entry}
-        with patch("slac_timing.buffer.epics.ca") as mock_ca, \
-             patch("slac_timing.buffer._PVcache_", {}):
-            mock_ca.current_context.return_value = "ctx"
-            mock_ca._cache.get.return_value = context_cache
-            buffer._clear_ca_cache()
-
-        mock_ca.clear_channel.assert_not_called()
-        assert "SOME:PV:HST1" in context_cache
