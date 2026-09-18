@@ -1,4 +1,5 @@
 import time as _time
+import warnings
 from abc import ABC, abstractmethod
 from typing import Optional
 
@@ -127,6 +128,7 @@ class Buffer(BaseModel, ABC):
         fill_value: float = np.nan,
         retries: int = 0,
         retry_delay: float = 1.0,
+        trim_stale: bool = False,
     ) -> Optional[np.ndarray]:
         """Get buffer data for a single PV.
 
@@ -137,6 +139,9 @@ class Buffer(BaseModel, ABC):
             fill_value: Value used for padding (default NaN).
             retries: Number of re-fetch attempts on size mismatch.
             retry_delay: Seconds between retry attempts.
+            trim_stale: If True and raw data exceeds n_measurements, detect
+                which end contains stale (flat) data and trim it instead of
+                blindly taking from the front.
 
         Returns:
             Array of length n_measurements (when pad=True), or None/short array otherwise.
@@ -146,14 +151,14 @@ class Buffer(BaseModel, ABC):
         """
         import epics
 
-        data = self._fetch_single(epics, pv)
+        data = self._fetch_single(epics, pv, trim_stale=trim_stale)
 
         if retries > 0 and self.n_measurements > 0:
             for _ in range(retries):
                 if data is not None and len(data) == self.n_measurements:
                     break
                 _time.sleep(retry_delay)
-                data = self._fetch_single(epics, pv)
+                data = self._fetch_single(epics, pv, trim_stale=trim_stale)
             else:
                 if data is None or len(data) != self.n_measurements:
                     if not pad:
@@ -204,7 +209,10 @@ class Buffer(BaseModel, ABC):
                         )
 
         if pad:
-            return {pv: self._apply_pad(data, pad, fill_value) for pv, data in results.items()}
+            return {
+                pv: self._apply_pad(data, pad, fill_value)
+                for pv, data in results.items()
+            }
         return results
 
     def get_data_buffer(self, pv: str, **kwargs) -> Optional[np.ndarray]:
@@ -226,13 +234,48 @@ class Buffer(BaseModel, ABC):
             return padded
         return data
 
+    def _find_active_window(self, data: np.ndarray) -> np.ndarray:
+        n = self.n_measurements
+        excess = len(data) - n
+
+        if excess < 10:
+            return data[:n]
+
+        front_var = float(np.var(data[:excess]))
+        back_var = float(np.var(data[-excess:]))
+
+        if front_var == 0.0 and back_var == 0.0:
+            return data[:n]
+
+        if front_var < back_var:
+            warnings.warn(
+                f"Trimmed {excess} stale samples from front of buffer "
+                f"(front_var={front_var:.4g}, back_var={back_var:.4g}). "
+                f"Returning last {n} of {len(data)} samples.",
+                stacklevel=4,
+            )
+            return data[-n:]
+
+        if back_var < front_var:
+            warnings.warn(
+                f"Trimmed {excess} stale samples from back of buffer "
+                f"(front_var={front_var:.4g}, back_var={back_var:.4g}). "
+                f"Returning first {n} of {len(data)} samples.",
+                stacklevel=4,
+            )
+            return data[:n]
+
+        return data[:n]
+
     def _batch_sizes_ok(self, results: dict[str, Optional[np.ndarray]]) -> bool:
         for data in results.values():
             if data is None or len(data) != self.n_measurements:
                 return False
         return True
 
-    def _fetch_single(self, epics, pv: str) -> Optional[np.ndarray]:
+    def _fetch_single(
+        self, epics, pv: str, trim_stale: bool = False
+    ) -> Optional[np.ndarray]:
         # Avoids calling epics.caget() which silently creates a persistent CA monitor on this PV.
         p = epics.PV(self.buffer_pv(pv), auto_monitor=False)
         # timeout=5.0 matches epics.caget()'s original default.
@@ -241,6 +284,8 @@ class Buffer(BaseModel, ABC):
         if data is None:
             return None
         if self.n_measurements > 0:
+            if trim_stale and len(data) > self.n_measurements:
+                return self._find_active_window(data)
             return data[: self.n_measurements]
         return data
 

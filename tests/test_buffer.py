@@ -1,3 +1,4 @@
+import warnings
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
@@ -196,3 +197,78 @@ class TestGetMany:
         with patch("epics.caget_many", side_effect=[short_batch, ok_batch]):
             result = buffer.get_many(["PV:A", "PV:B"], retries=2, retry_delay=0)
         np.testing.assert_array_equal(result["PV:A"], np.arange(5, dtype=float))
+
+
+class TestTrimStale:
+    def test_stale_at_front_returns_back_window(self, buffer):
+        active = np.linspace(0, 50, 5)
+        raw = np.concatenate([np.full(15, 100.0), active])
+        with _mock_pv(return_value=raw):
+            result = buffer.get("SOME:PV", trim_stale=True)
+        np.testing.assert_array_equal(result, active)
+
+    def test_stale_at_back_returns_front_window(self, buffer):
+        active = np.linspace(0, 50, 5)
+        raw = np.concatenate([active, np.full(15, 100.0)])
+        with _mock_pv(return_value=raw):
+            result = buffer.get("SOME:PV", trim_stale=True)
+        np.testing.assert_array_equal(result, active)
+
+    def test_exact_size_returns_unchanged(self, buffer):
+        raw = np.arange(5, dtype=float)
+        with _mock_pv(return_value=raw):
+            result = buffer.get("SOME:PV", trim_stale=True)
+        np.testing.assert_array_equal(result, raw)
+
+    def test_short_data_not_affected(self, buffer):
+        raw = np.array([1.0, 2.0, 3.0])
+        with _mock_pv(return_value=raw):
+            result = buffer.get("SOME:PV", trim_stale=True)
+        np.testing.assert_array_equal(result, raw)
+
+    def test_tiny_excess_falls_back_to_front(self, buffer):
+        raw = np.arange(14, dtype=float)
+        with _mock_pv(return_value=raw):
+            result = buffer.get("SOME:PV", trim_stale=True)
+        np.testing.assert_array_equal(result, raw[:5])
+
+    def test_all_identical_falls_back_to_front(self, buffer):
+        raw = np.full(20, 100.0)
+        with _mock_pv(return_value=raw):
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+                result = buffer.get("SOME:PV", trim_stale=True)
+        np.testing.assert_array_equal(result, raw[:5])
+        assert len(w) == 0
+
+    def test_default_trim_stale_false_preserves_behavior(self, buffer):
+        active = np.linspace(0, 50, 5)
+        raw = np.concatenate([np.full(15, 100.0), active])
+        with _mock_pv(return_value=raw):
+            result = buffer.get("SOME:PV")
+        np.testing.assert_array_equal(result, raw[:5])
+
+    def test_warning_emitted_on_front_trim(self, buffer):
+        active = np.linspace(0, 50, 5)
+        raw = np.concatenate([np.full(15, 100.0), active])
+        with _mock_pv(return_value=raw):
+            with pytest.warns(UserWarning, match="stale samples from front"):
+                buffer.get("SOME:PV", trim_stale=True)
+
+    def test_warning_emitted_on_back_trim(self, buffer):
+        active = np.linspace(0, 50, 5)
+        raw = np.concatenate([active, np.full(15, 100.0)])
+        with _mock_pv(return_value=raw):
+            with pytest.warns(UserWarning, match="stale samples from back"):
+                buffer.get("SOME:PV", trim_stale=True)
+
+    def test_none_data_with_trim_stale(self, buffer):
+        with _mock_pv(return_value=None):
+            assert buffer.get("SOME:PV", trim_stale=True) is None
+
+    def test_trim_stale_with_retries(self, buffer):
+        active = np.linspace(0, 50, 5)
+        raw = np.concatenate([np.full(15, 100.0), active])
+        with _mock_pv(return_value=raw):
+            result = buffer.get("SOME:PV", trim_stale=True, retries=2, retry_delay=0)
+        np.testing.assert_array_equal(result, active)

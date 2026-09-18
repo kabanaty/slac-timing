@@ -57,7 +57,10 @@ class EventDefinition(Buffer):
                         f"Could not reach edef system pv={_SYSTEM.slot_names[num].pvname}"
                     )
                 if edef_name == self.name:
-                    if _SYSTEM.slot_usernames[num].put(str(self.user), wait=True) is None:
+                    if (
+                        _SYSTEM.slot_usernames[num].put(str(self.user), wait=True)
+                        is None
+                    ):
                         raise ReservationError(
                             f"Could not reach edef system pv={_SYSTEM.slot_usernames[num].pvname}"
                         )
