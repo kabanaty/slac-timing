@@ -272,3 +272,84 @@ class TestTrimStale:
         with _mock_pv(return_value=raw):
             result = buffer.get("SOME:PV", trim_stale=True, retries=2, retry_delay=0)
         np.testing.assert_array_equal(result, active)
+
+
+class TestComputeTrimOffset:
+    def test_front_stale_returns_excess(self, buffer):
+        active = np.linspace(0, 50, 5)
+        raw = np.concatenate([np.full(15, 100.0), active])
+        assert buffer._compute_trim_offset(raw) == 15
+
+    def test_back_stale_returns_zero(self, buffer):
+        active = np.linspace(0, 50, 5)
+        raw = np.concatenate([active, np.full(15, 100.0)])
+        assert buffer._compute_trim_offset(raw) == 0
+
+    def test_exact_size_returns_zero(self, buffer):
+        raw = np.arange(5, dtype=float)
+        assert buffer._compute_trim_offset(raw) == 0
+
+    def test_short_data_returns_zero(self, buffer):
+        raw = np.array([1.0, 2.0, 3.0])
+        assert buffer._compute_trim_offset(raw) == 0
+
+    def test_tiny_excess_returns_zero(self, buffer):
+        raw = np.arange(14, dtype=float)
+        assert buffer._compute_trim_offset(raw) == 0
+
+    def test_all_identical_returns_zero(self, buffer):
+        raw = np.full(20, 100.0)
+        assert buffer._compute_trim_offset(raw) == 0
+
+
+class TestPublicComputeTrimOffset:
+    def test_returns_offset_for_front_stale(self, buffer):
+        active = np.linspace(0, 50, 5)
+        raw = np.concatenate([np.full(15, 100.0), active])
+        with _mock_pv(return_value=raw):
+            assert buffer.compute_trim_offset("SOME:PV") == 15
+
+    def test_returns_zero_for_exact_data(self, buffer):
+        raw = np.arange(5, dtype=float)
+        with _mock_pv(return_value=raw):
+            assert buffer.compute_trim_offset("SOME:PV") == 0
+
+    def test_returns_zero_for_none_data(self, buffer):
+        with _mock_pv(return_value=None):
+            assert buffer.compute_trim_offset("SOME:PV") == 0
+
+
+class TestTrimOffset:
+    def test_applies_offset_to_oversized_data(self, buffer):
+        raw = np.arange(20, dtype=float)
+        with _mock_pv(return_value=raw):
+            result = buffer.get("SOME:PV", trim_offset=15)
+        np.testing.assert_array_equal(result, np.arange(15, 20, dtype=float))
+
+    def test_zero_offset_returns_front(self, buffer):
+        raw = np.arange(20, dtype=float)
+        with _mock_pv(return_value=raw):
+            result = buffer.get("SOME:PV", trim_offset=0)
+        np.testing.assert_array_equal(result, np.arange(5, dtype=float))
+
+    def test_exact_size_ignores_offset(self, buffer):
+        raw = np.arange(5, dtype=float)
+        with _mock_pv(return_value=raw):
+            result = buffer.get("SOME:PV", trim_offset=3)
+        np.testing.assert_array_equal(result, raw)
+
+    def test_with_retries(self, buffer):
+        raw = np.arange(20, dtype=float)
+        with _mock_pv(return_value=raw):
+            result = buffer.get("SOME:PV", trim_offset=15, retries=2, retry_delay=0)
+        np.testing.assert_array_equal(result, np.arange(15, 20, dtype=float))
+
+    def test_mutual_exclusion_with_trim_stale(self, buffer):
+        raw = np.arange(20, dtype=float)
+        with _mock_pv(return_value=raw):
+            with pytest.raises(ValueError, match="mutually exclusive"):
+                buffer.get("SOME:PV", trim_stale=True, trim_offset=5)
+
+    def test_none_data_returns_none(self, buffer):
+        with _mock_pv(return_value=None):
+            assert buffer.get("SOME:PV", trim_offset=5) is None

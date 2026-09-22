@@ -129,6 +129,7 @@ class Buffer(BaseModel, ABC):
         retries: int = 0,
         retry_delay: float = 1.0,
         trim_stale: bool = False,
+        trim_offset: int | None = None,
     ) -> Optional[np.ndarray]:
         """Get buffer data for a single PV.
 
@@ -142,23 +143,36 @@ class Buffer(BaseModel, ABC):
             trim_stale: If True and raw data exceeds n_measurements, detect
                 which end contains stale (flat) data and trim it instead of
                 blindly taking from the front.
+            trim_offset: If set, skip this many samples from the front of
+                oversized raw data. Used to align multiple PVs to the same
+                buffer window. Mutually exclusive with trim_stale.
 
         Returns:
             Array of length n_measurements (when pad=True), or None/short array otherwise.
 
         Raises:
             BufferSizeError: If retries > 0 and data size still mismatches after all attempts.
+            ValueError: If both trim_stale and trim_offset are provided.
         """
+        if trim_stale and trim_offset is not None:
+            raise ValueError(
+                "trim_stale and trim_offset are mutually exclusive."
+            )
+
         import epics
 
-        data = self._fetch_single(epics, pv, trim_stale=trim_stale)
+        data = self._fetch_single(
+            epics, pv, trim_stale=trim_stale, trim_offset=trim_offset
+        )
 
         if retries > 0 and self.n_measurements > 0:
             for _ in range(retries):
                 if data is not None and len(data) == self.n_measurements:
                     break
                 _time.sleep(retry_delay)
-                data = self._fetch_single(epics, pv, trim_stale=trim_stale)
+                data = self._fetch_single(
+                    epics, pv, trim_stale=trim_stale, trim_offset=trim_offset
+                )
             else:
                 if data is None or len(data) != self.n_measurements:
                     if not pad:
@@ -234,18 +248,27 @@ class Buffer(BaseModel, ABC):
             return padded
         return data
 
-    def _find_active_window(self, data: np.ndarray) -> np.ndarray:
-        n = self.n_measurements
-        excess = len(data) - n
+    def _compute_trim_offset(self, data: np.ndarray) -> int:
+        """Return the number of stale front samples to skip.
 
+        Uses variance of the excess region at each end to decide whether
+        the front or back of the buffer contains stale (flat) data.
+
+        Returns 0 when no front-trimming is needed.
+        """
+        n = self.n_measurements
+        if len(data) <= n:
+            return 0
+
+        excess = len(data) - n
         if excess < 10:
-            return data[:n]
+            return 0
 
         front_var = float(np.var(data[:excess]))
         back_var = float(np.var(data[-excess:]))
 
         if front_var == 0.0 and back_var == 0.0:
-            return data[:n]
+            return 0
 
         if front_var < back_var:
             warnings.warn(
@@ -254,7 +277,7 @@ class Buffer(BaseModel, ABC):
                 f"Returning last {n} of {len(data)} samples.",
                 stacklevel=4,
             )
-            return data[-n:]
+            return excess
 
         if back_var < front_var:
             warnings.warn(
@@ -263,9 +286,34 @@ class Buffer(BaseModel, ABC):
                 f"Returning first {n} of {len(data)} samples.",
                 stacklevel=4,
             )
-            return data[:n]
+            return 0
 
-        return data[:n]
+        return 0
+
+    def _find_active_window(self, data: np.ndarray) -> np.ndarray:
+        offset = self._compute_trim_offset(data)
+        n = self.n_measurements
+        return data[offset : offset + n]
+
+    def compute_trim_offset(self, pv: str) -> int:
+        """Fetch raw data for *pv* and return the stale-data trim offset.
+
+        The offset is the number of samples to skip from the front so that
+        ``data[offset : offset + n_measurements]`` contains the active window.
+        Returns 0 when no trimming is needed.
+
+        This is intended to be called once for a reference PV (e.g. motor
+        position), and the resulting offset passed to subsequent
+        :meth:`get` calls via ``trim_offset`` so all PVs use the same window.
+        """
+        import epics
+
+        p = epics.PV(self.buffer_pv(pv), auto_monitor=False)
+        data = p.get(use_monitor=False, timeout=5.0)
+        self._clear_pv_state(epics, p)
+        if data is None:
+            return 0
+        return self._compute_trim_offset(data)
 
     def _batch_sizes_ok(self, results: dict[str, Optional[np.ndarray]]) -> bool:
         for data in results.values():
@@ -274,16 +322,20 @@ class Buffer(BaseModel, ABC):
         return True
 
     def _fetch_single(
-        self, epics, pv: str, trim_stale: bool = False
+        self,
+        epics,
+        pv: str,
+        trim_stale: bool = False,
+        trim_offset: int | None = None,
     ) -> Optional[np.ndarray]:
-        # Avoids calling epics.caget() which silently creates a persistent CA monitor on this PV.
         p = epics.PV(self.buffer_pv(pv), auto_monitor=False)
-        # timeout=5.0 matches epics.caget()'s original default.
         data = p.get(use_monitor=False, timeout=5.0)
         self._clear_pv_state(epics, p)
         if data is None:
             return None
         if self.n_measurements > 0:
+            if trim_offset is not None and len(data) > self.n_measurements:
+                return data[trim_offset : trim_offset + self.n_measurements]
             if trim_stale and len(data) > self.n_measurements:
                 return self._find_active_window(data)
             return data[: self.n_measurements]
