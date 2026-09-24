@@ -159,7 +159,7 @@ class Buffer(BaseModel, ABC):
                 "trim_stale is a temporary workaround for firmware that "
                 "over-reports buffer length and will be removed once the "
                 "firmware is fixed.",
-                DeprecationWarning,
+                FutureWarning,
                 stacklevel=2,
             )
         if trim_offset is not None:
@@ -167,7 +167,7 @@ class Buffer(BaseModel, ABC):
                 "trim_offset is a temporary workaround for firmware that "
                 "over-reports buffer length and will be removed once the "
                 "firmware is fixed.",
-                DeprecationWarning,
+                FutureWarning,
                 stacklevel=2,
             )
         if trim_stale and trim_offset is not None:

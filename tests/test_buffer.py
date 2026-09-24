@@ -239,7 +239,7 @@ class TestTrimStale:
                 warnings.simplefilter("always")
                 result = buffer.get("SOME:PV", trim_stale=True)
         np.testing.assert_array_equal(result, raw[:5])
-        non_deprecation = [x for x in w if not issubclass(x.category, DeprecationWarning)]
+        non_deprecation = [x for x in w if not issubclass(x.category, FutureWarning)]
         assert len(non_deprecation) == 0
 
     def test_default_trim_stale_false_preserves_behavior(self, buffer):
