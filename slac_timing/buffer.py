@@ -154,6 +154,15 @@ class Buffer(BaseModel, ABC):
             BufferSizeError: If retries > 0 and data size still mismatches after all attempts.
             ValueError: If both trim_stale and trim_offset are provided.
         """
+        if trim_stale:
+            warnings.warn(
+                "trim_stale is a temporary workaround for firmware that "
+                "over-reports buffer length and will be removed once the "
+                "firmware is fixed. Use trim_offset for deterministic "
+                "alignment instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         if trim_stale and trim_offset is not None:
             raise ValueError(
                 "trim_stale and trim_offset are mutually exclusive."
@@ -298,6 +307,10 @@ class Buffer(BaseModel, ABC):
     def compute_trim_offset(self, pv: str) -> int:
         """Fetch raw data for *pv* and return the stale-data trim offset.
 
+        .. deprecated::
+            Temporary workaround for firmware that over-reports buffer
+            length. Will be removed once the firmware is fixed.
+
         The offset is the number of samples to skip from the front so that
         ``data[offset : offset + n_measurements]`` contains the active window.
         Returns 0 when no trimming is needed.
@@ -306,6 +319,13 @@ class Buffer(BaseModel, ABC):
         position), and the resulting offset passed to subsequent
         :meth:`get` calls via ``trim_offset`` so all PVs use the same window.
         """
+        warnings.warn(
+            "compute_trim_offset is a temporary workaround for firmware "
+            "that over-reports buffer length and will be removed once the "
+            "firmware is fixed.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         import epics
 
         p = epics.PV(self.buffer_pv(pv), auto_monitor=False)
