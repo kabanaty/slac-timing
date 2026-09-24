@@ -158,8 +158,15 @@ class Buffer(BaseModel, ABC):
             warnings.warn(
                 "trim_stale is a temporary workaround for firmware that "
                 "over-reports buffer length and will be removed once the "
-                "firmware is fixed. Use trim_offset for deterministic "
-                "alignment instead.",
+                "firmware is fixed.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        if trim_offset is not None:
+            warnings.warn(
+                "trim_offset is a temporary workaround for firmware that "
+                "over-reports buffer length and will be removed once the "
+                "firmware is fixed.",
                 DeprecationWarning,
                 stacklevel=2,
             )
