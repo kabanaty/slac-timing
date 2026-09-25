@@ -43,7 +43,8 @@ def buffer():
     with patch("pydantic.BaseModel.model_post_init"):
         buf = ConcreteBuffer.__new__(ConcreteBuffer)
         buf.__dict__.update(
-            name="test", user="tester", number=1, n_measurements=5, n_avg=1, _pvs=None
+            name="test", user="tester", number=1, n_measurements=5, n_avg=1,
+            _pvs=None, _trim_offset=None
         )
     return buf
 
@@ -199,82 +200,6 @@ class TestGetMany:
         np.testing.assert_array_equal(result["PV:A"], np.arange(5, dtype=float))
 
 
-class TestTrimStale:
-    def test_stale_at_front_returns_back_window(self, buffer):
-        active = np.linspace(0, 50, 5)
-        raw = np.concatenate([np.full(15, 100.0), active])
-        with _mock_pv(return_value=raw):
-            result = buffer.get("SOME:PV", trim_stale=True)
-        np.testing.assert_array_equal(result, active)
-
-    def test_stale_at_back_returns_front_window(self, buffer):
-        active = np.linspace(0, 50, 5)
-        raw = np.concatenate([active, np.full(15, 100.0)])
-        with _mock_pv(return_value=raw):
-            result = buffer.get("SOME:PV", trim_stale=True)
-        np.testing.assert_array_equal(result, active)
-
-    def test_exact_size_returns_unchanged(self, buffer):
-        raw = np.arange(5, dtype=float)
-        with _mock_pv(return_value=raw):
-            result = buffer.get("SOME:PV", trim_stale=True)
-        np.testing.assert_array_equal(result, raw)
-
-    def test_short_data_not_affected(self, buffer):
-        raw = np.array([1.0, 2.0, 3.0])
-        with _mock_pv(return_value=raw):
-            result = buffer.get("SOME:PV", trim_stale=True)
-        np.testing.assert_array_equal(result, raw)
-
-    def test_tiny_excess_falls_back_to_front(self, buffer):
-        raw = np.arange(14, dtype=float)
-        with _mock_pv(return_value=raw):
-            result = buffer.get("SOME:PV", trim_stale=True)
-        np.testing.assert_array_equal(result, raw[:5])
-
-    def test_all_identical_falls_back_to_front(self, buffer):
-        raw = np.full(20, 100.0)
-        with _mock_pv(return_value=raw):
-            with warnings.catch_warnings(record=True) as w:
-                warnings.simplefilter("always")
-                result = buffer.get("SOME:PV", trim_stale=True)
-        np.testing.assert_array_equal(result, raw[:5])
-        non_deprecation = [x for x in w if not issubclass(x.category, FutureWarning)]
-        assert len(non_deprecation) == 0
-
-    def test_default_trim_stale_false_preserves_behavior(self, buffer):
-        active = np.linspace(0, 50, 5)
-        raw = np.concatenate([np.full(15, 100.0), active])
-        with _mock_pv(return_value=raw):
-            result = buffer.get("SOME:PV")
-        np.testing.assert_array_equal(result, raw[:5])
-
-    def test_warning_emitted_on_front_trim(self, buffer):
-        active = np.linspace(0, 50, 5)
-        raw = np.concatenate([np.full(15, 100.0), active])
-        with _mock_pv(return_value=raw):
-            with pytest.warns(UserWarning, match="stale samples from front"):
-                buffer.get("SOME:PV", trim_stale=True)
-
-    def test_warning_emitted_on_back_trim(self, buffer):
-        active = np.linspace(0, 50, 5)
-        raw = np.concatenate([active, np.full(15, 100.0)])
-        with _mock_pv(return_value=raw):
-            with pytest.warns(UserWarning, match="stale samples from back"):
-                buffer.get("SOME:PV", trim_stale=True)
-
-    def test_none_data_with_trim_stale(self, buffer):
-        with _mock_pv(return_value=None):
-            assert buffer.get("SOME:PV", trim_stale=True) is None
-
-    def test_trim_stale_with_retries(self, buffer):
-        active = np.linspace(0, 50, 5)
-        raw = np.concatenate([np.full(15, 100.0), active])
-        with _mock_pv(return_value=raw):
-            result = buffer.get("SOME:PV", trim_stale=True, retries=2, retry_delay=0)
-        np.testing.assert_array_equal(result, active)
-
-
 class TestComputeTrimOffset:
     def test_front_stale_returns_excess(self, buffer):
         active = np.linspace(0, 50, 5)
@@ -290,67 +215,97 @@ class TestComputeTrimOffset:
         raw = np.arange(5, dtype=float)
         assert buffer._compute_trim_offset(raw) == 0
 
-    def test_short_data_returns_zero(self, buffer):
-        raw = np.array([1.0, 2.0, 3.0])
+    def test_small_excess_returns_zero(self, buffer):
+        raw = np.concatenate([np.full(7, 100.0), np.arange(5, dtype=float)])
         assert buffer._compute_trim_offset(raw) == 0
 
-    def test_tiny_excess_returns_zero(self, buffer):
-        raw = np.arange(14, dtype=float)
-        assert buffer._compute_trim_offset(raw) == 0
-
-    def test_all_identical_returns_zero(self, buffer):
+    def test_both_flat_returns_zero(self, buffer):
         raw = np.full(20, 100.0)
         assert buffer._compute_trim_offset(raw) == 0
 
 
-class TestPublicComputeTrimOffset:
-    def test_returns_offset_for_front_stale(self, buffer):
+class TestCalibrateTrim:
+    def test_caches_offset_and_returns_it(self, buffer):
         active = np.linspace(0, 50, 5)
         raw = np.concatenate([np.full(15, 100.0), active])
         with _mock_pv(return_value=raw):
-            assert buffer.compute_trim_offset("SOME:PV") == 15
+            offset = buffer.calibrate_trim("SOME:PV")
+        assert offset == 15
+        assert buffer._trim_offset == 15
 
-    def test_returns_zero_for_exact_data(self, buffer):
+    def test_emits_future_warning(self, buffer):
+        with _mock_pv(return_value=np.arange(5, dtype=float)):
+            with pytest.warns(FutureWarning, match="temporary workaround"):
+                buffer.calibrate_trim("SOME:PV")
+
+    def test_emits_user_warning_when_stale_detected(self, buffer):
+        active = np.linspace(0, 50, 5)
+        raw = np.concatenate([np.full(15, 100.0), active])
+        with _mock_pv(return_value=raw):
+            with pytest.warns(UserWarning, match="stale samples"):
+                buffer.calibrate_trim("SOME:PV")
+
+    def test_no_user_warning_when_no_stale(self, buffer):
         raw = np.arange(5, dtype=float)
         with _mock_pv(return_value=raw):
-            assert buffer.compute_trim_offset("SOME:PV") == 0
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+                buffer.calibrate_trim("SOME:PV")
+        user_warnings = [x for x in w if issubclass(x.category, UserWarning)
+                         and not issubclass(x.category, FutureWarning)]
+        assert len(user_warnings) == 0
 
-    def test_returns_zero_for_none_data(self, buffer):
+    def test_none_data_returns_zero(self, buffer):
         with _mock_pv(return_value=None):
-            assert buffer.compute_trim_offset("SOME:PV") == 0
+            offset = buffer.calibrate_trim("SOME:PV")
+        assert offset == 0
+        assert buffer._trim_offset == 0
 
 
-class TestTrimOffset:
-    def test_applies_offset_to_oversized_data(self, buffer):
-        raw = np.arange(20, dtype=float)
+class TestApplyTrim:
+    def test_uses_cached_offset_on_oversized_data(self, buffer):
+        buffer.__dict__["_trim_offset"] = 15
+        active = np.linspace(0, 50, 5)
+        raw = np.concatenate([np.full(15, 100.0), active])
         with _mock_pv(return_value=raw):
-            result = buffer.get("SOME:PV", trim_offset=15)
-        np.testing.assert_array_equal(result, np.arange(15, 20, dtype=float))
+            result = buffer.get("SOME:PV")
+        np.testing.assert_array_equal(result, active)
 
-    def test_zero_offset_returns_front(self, buffer):
-        raw = np.arange(20, dtype=float)
-        with _mock_pv(return_value=raw):
-            result = buffer.get("SOME:PV", trim_offset=0)
-        np.testing.assert_array_equal(result, np.arange(5, dtype=float))
-
-    def test_exact_size_ignores_offset(self, buffer):
+    def test_ignores_offset_on_correct_size_data(self, buffer):
+        buffer.__dict__["_trim_offset"] = 15
         raw = np.arange(5, dtype=float)
         with _mock_pv(return_value=raw):
-            result = buffer.get("SOME:PV", trim_offset=3)
+            result = buffer.get("SOME:PV")
         np.testing.assert_array_equal(result, raw)
 
-    def test_with_retries(self, buffer):
+    def test_default_truncation_without_calibration(self, buffer):
         raw = np.arange(20, dtype=float)
         with _mock_pv(return_value=raw):
-            result = buffer.get("SOME:PV", trim_offset=15, retries=2, retry_delay=0)
-        np.testing.assert_array_equal(result, np.arange(15, 20, dtype=float))
+            result = buffer.get("SOME:PV")
+        np.testing.assert_array_equal(result, np.arange(5, dtype=float))
 
-    def test_mutual_exclusion_with_trim_stale(self, buffer):
+    def test_fetch_many_applies_offset(self, buffer):
+        buffer.__dict__["_trim_offset"] = 15
+        active_a = np.linspace(0, 50, 5)
+        active_b = np.linspace(100, 150, 5)
+        raw_a = np.concatenate([np.full(15, 0.0), active_a])
+        raw_b = np.concatenate([np.full(15, 0.0), active_b])
+        with patch("epics.caget_many", return_value=[raw_a, raw_b]):
+            result = buffer.get_many(["PV:A", "PV:B"])
+        np.testing.assert_array_equal(result["PV:A"], active_a)
+        np.testing.assert_array_equal(result["PV:B"], active_b)
+
+
+class TestResetTrim:
+    def test_clears_offset(self, buffer):
+        buffer.__dict__["_trim_offset"] = 15
+        buffer.reset_trim()
+        assert buffer._trim_offset is None
+
+    def test_reverts_to_default_truncation(self, buffer):
+        buffer.__dict__["_trim_offset"] = 15
+        buffer.reset_trim()
         raw = np.arange(20, dtype=float)
         with _mock_pv(return_value=raw):
-            with pytest.raises(ValueError, match="mutually exclusive"):
-                buffer.get("SOME:PV", trim_stale=True, trim_offset=5)
-
-    def test_none_data_returns_none(self, buffer):
-        with _mock_pv(return_value=None):
-            assert buffer.get("SOME:PV", trim_offset=5) is None
+            result = buffer.get("SOME:PV")
+        np.testing.assert_array_equal(result, np.arange(5, dtype=float))

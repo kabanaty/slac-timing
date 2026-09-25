@@ -35,6 +35,7 @@ class Buffer(BaseModel, ABC):
     n_avg: int = 1
 
     _pvs: Optional[BufferPVs] = PrivateAttr(default=None)
+    _trim_offset: Optional[int] = PrivateAttr(default=None)
 
     @property
     @abstractmethod
@@ -128,8 +129,6 @@ class Buffer(BaseModel, ABC):
         fill_value: float = np.nan,
         retries: int = 0,
         retry_delay: float = 1.0,
-        trim_stale: bool = False,
-        trim_offset: int | None = None,
     ) -> Optional[np.ndarray]:
         """Get buffer data for a single PV.
 
@@ -140,55 +139,23 @@ class Buffer(BaseModel, ABC):
             fill_value: Value used for padding (default NaN).
             retries: Number of re-fetch attempts on size mismatch.
             retry_delay: Seconds between retry attempts.
-            trim_stale: If True and raw data exceeds n_measurements, detect
-                which end contains stale (flat) data and trim it instead of
-                blindly taking from the front.
-            trim_offset: If set, skip this many samples from the front of
-                oversized raw data. Used to align multiple PVs to the same
-                buffer window. Mutually exclusive with trim_stale.
 
         Returns:
             Array of length n_measurements (when pad=True), or None/short array otherwise.
 
         Raises:
             BufferSizeError: If retries > 0 and data size still mismatches after all attempts.
-            ValueError: If both trim_stale and trim_offset are provided.
         """
-        if trim_stale:
-            warnings.warn(
-                "trim_stale is a temporary workaround for firmware that "
-                "over-reports buffer length and will be removed once the "
-                "firmware is fixed.",
-                FutureWarning,
-                stacklevel=2,
-            )
-        if trim_offset is not None:
-            warnings.warn(
-                "trim_offset is a temporary workaround for firmware that "
-                "over-reports buffer length and will be removed once the "
-                "firmware is fixed.",
-                FutureWarning,
-                stacklevel=2,
-            )
-        if trim_stale and trim_offset is not None:
-            raise ValueError(
-                "trim_stale and trim_offset are mutually exclusive."
-            )
-
         import epics
 
-        data = self._fetch_single(
-            epics, pv, trim_stale=trim_stale, trim_offset=trim_offset
-        )
+        data = self._fetch_single(epics, pv)
 
         if retries > 0 and self.n_measurements > 0:
             for _ in range(retries):
                 if data is not None and len(data) == self.n_measurements:
                     break
                 _time.sleep(retry_delay)
-                data = self._fetch_single(
-                    epics, pv, trim_stale=trim_stale, trim_offset=trim_offset
-                )
+                data = self._fetch_single(epics, pv)
             else:
                 if data is None or len(data) != self.n_measurements:
                     if not pad:
@@ -249,6 +216,77 @@ class Buffer(BaseModel, ABC):
         """Compatibility alias for get()."""
         return self.get(pv, **kwargs)
 
+    # --- Stale-data trim (firmware workaround) ---
+
+    def calibrate_trim(self, reference_pv: str) -> int:
+        """Detect and cache stale-sample offset using a reference PV.
+
+        Fetches the reference PV's full buffer, compares variance of the
+        excess regions to detect stale samples, and caches the offset for
+        subsequent get()/get_many() calls.
+
+        Args:
+            reference_pv: A PV with high variance in the live region
+                (e.g., wire motor position during a scan).
+
+        Returns:
+            The computed trim offset (0 if no stale data detected).
+        """
+        import epics
+
+        warnings.warn(
+            "calibrate_trim() is a temporary workaround for firmware that "
+            "over-reports buffer length. It will be removed once the "
+            "firmware is fixed.",
+            FutureWarning,
+            stacklevel=2,
+        )
+
+        data = self._fetch_raw_single(epics, reference_pv)
+        if data is None:
+            self.__dict__["_trim_offset"] = 0
+            return 0
+
+        offset = self._compute_trim_offset(data)
+        self.__dict__["_trim_offset"] = offset
+
+        if offset > 0:
+            warnings.warn(
+                f"Detected {offset} stale samples at front of buffer "
+                f"for '{reference_pv}'. Subsequent get()/get_many() calls "
+                f"will skip them.",
+                UserWarning,
+                stacklevel=2,
+            )
+
+        return offset
+
+    def reset_trim(self) -> None:
+        """Clear the cached trim offset."""
+        self.__dict__["_trim_offset"] = None
+
+    def _compute_trim_offset(self, data: np.ndarray) -> int:
+        """Detect stale samples at front of oversized buffer data.
+
+        Compares variance of the front excess vs the back excess.
+        Lower variance indicates stale (parked/constant) data.
+        """
+        n = self.n_measurements
+        excess = len(data) - n
+        if excess <= 0 or excess < 10:
+            return 0
+
+        front_var = float(np.var(data[:excess]))
+        back_var = float(np.var(data[-excess:]))
+
+        if front_var == 0.0 and back_var == 0.0:
+            return 0
+
+        if front_var < back_var:
+            return excess
+
+        return 0
+
     # --- Internal helpers ---
 
     def _apply_pad(
@@ -264,109 +302,35 @@ class Buffer(BaseModel, ABC):
             return padded
         return data
 
-    def _compute_trim_offset(self, data: np.ndarray) -> int:
-        """Return the number of stale front samples to skip.
-
-        Uses variance of the excess region at each end to decide whether
-        the front or back of the buffer contains stale (flat) data.
-
-        Returns 0 when no front-trimming is needed.
-        """
-        n = self.n_measurements
-        if len(data) <= n:
-            return 0
-
-        excess = len(data) - n
-        if excess < 10:
-            return 0
-
-        front_var = float(np.var(data[:excess]))
-        back_var = float(np.var(data[-excess:]))
-
-        if front_var == 0.0 and back_var == 0.0:
-            return 0
-
-        if front_var < back_var:
-            warnings.warn(
-                f"Trimmed {excess} stale samples from front of buffer "
-                f"(front_var={front_var:.4g}, back_var={back_var:.4g}). "
-                f"Returning last {n} of {len(data)} samples.",
-                stacklevel=4,
-            )
-            return excess
-
-        if back_var < front_var:
-            warnings.warn(
-                f"Trimmed {excess} stale samples from back of buffer "
-                f"(front_var={front_var:.4g}, back_var={back_var:.4g}). "
-                f"Returning first {n} of {len(data)} samples.",
-                stacklevel=4,
-            )
-            return 0
-
-        return 0
-
-    def _find_active_window(self, data: np.ndarray) -> np.ndarray:
-        offset = self._compute_trim_offset(data)
-        n = self.n_measurements
-        return data[offset : offset + n]
-
-    def compute_trim_offset(self, pv: str) -> int:
-        """Fetch raw data for *pv* and return the stale-data trim offset.
-
-        .. deprecated::
-            Temporary workaround for firmware that over-reports buffer
-            length. Will be removed once the firmware is fixed.
-
-        The offset is the number of samples to skip from the front so that
-        ``data[offset : offset + n_measurements]`` contains the active window.
-        Returns 0 when no trimming is needed.
-
-        This is intended to be called once for a reference PV (e.g. motor
-        position), and the resulting offset passed to subsequent
-        :meth:`get` calls via ``trim_offset`` so all PVs use the same window.
-        """
-        warnings.warn(
-            "compute_trim_offset is a temporary workaround for firmware "
-            "that over-reports buffer length and will be removed once the "
-            "firmware is fixed.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        import epics
-
-        p = epics.PV(self.buffer_pv(pv), auto_monitor=False)
-        data = p.get(use_monitor=False, timeout=5.0)
-        self._clear_pv_state(epics, p)
-        if data is None:
-            return 0
-        return self._compute_trim_offset(data)
-
     def _batch_sizes_ok(self, results: dict[str, Optional[np.ndarray]]) -> bool:
         for data in results.values():
             if data is None or len(data) != self.n_measurements:
                 return False
         return True
 
-    def _fetch_single(
-        self,
-        epics,
-        pv: str,
-        trim_stale: bool = False,
-        trim_offset: int | None = None,
-    ) -> Optional[np.ndarray]:
+    def _fetch_raw_single(self, epics, pv: str) -> Optional[np.ndarray]:
+        """Fetch raw buffer data for a single PV without truncation."""
         p = epics.PV(self.buffer_pv(pv), auto_monitor=False)
         data = p.get(use_monitor=False, timeout=5.0)
         self._clear_pv_state(epics, p)
+        return data
+
+    def _fetch_single(self, epics, pv: str) -> Optional[np.ndarray]:
+        data = self._fetch_raw_single(epics, pv)
         if data is None:
             return None
         if self.n_measurements > 0:
-            if trim_offset is not None and len(data) > self.n_measurements:
-                return data[trim_offset : trim_offset + self.n_measurements]
-            if trim_stale and len(data) > self.n_measurements:
-                return self._find_active_window(data)
-            return data[: self.n_measurements]
+            return self._apply_trim(data)
         return data
+
+    def _apply_trim(self, data: np.ndarray) -> np.ndarray:
+        """Truncate data to n_measurements, applying stale-data offset when set."""
+        n = self.n_measurements
+        if self._trim_offset and len(data) > n:
+            end = self._trim_offset + n
+            if end <= len(data):
+                return data[self._trim_offset : end]
+        return data[:n]
 
     def _clear_pv_state(self, epics, pv) -> None:
         """Disconnect pv and discard pyepics' cached last-read value for it."""
@@ -374,7 +338,6 @@ class Buffer(BaseModel, ABC):
         ctx = epics.ca.current_context()
         if ctx is None:
             return
-        # No public pyepics API for this -- reaches into epics.ca's internals.
         context_cache = epics.ca._cache.get(ctx)
         if context_cache is None:
             return
@@ -390,7 +353,7 @@ class Buffer(BaseModel, ABC):
             if data is None:
                 results[pv] = None
             elif self.n_measurements > 0:
-                results[pv] = data[: self.n_measurements]
+                results[pv] = self._apply_trim(data)
             else:
                 results[pv] = data
         return results
