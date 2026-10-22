@@ -10,11 +10,20 @@ import slac_timing.pvs
 _PREFIX = "EDEF:SYS0"
 _NUM_EDEF_SLOTS = 11
 _RESERVE_TIMEOUT_S = 5.0
+_MASK_SETTLE_S = 0.1
 _SYSTEM = slac_timing.pvs.EventDefinitionSystemPVs()
 
 
 class EventDefinition(Buffer):
-    """CU linac eDef buffer."""
+    """CU linac eDef buffer.
+
+    Inclusion/exclusion masks are added to the defaults the EDEF gets at
+    reservation (e.g. pockcel_perm, TS2/3/5/6 exclusions); bits are never
+    cleared. Masks are applied once, at reservation.
+
+    rate_limit_hz is the rate of shots the masks let through (e.g. the BYKIK
+    rate), or None if the buffer sees the full beam rate.
+    """
 
     BEAMCODE_MAP: ClassVar[dict[str, int]] = {
         "CU_HXR": 1,
@@ -24,6 +33,7 @@ class EventDefinition(Buffer):
     beamcode: int
     inclusion_masks: Optional[list] = None
     exclusion_masks: Optional[list] = None
+    rate_limit_hz: Optional[float] = None
 
     @property
     def pv_prefix(self) -> str:
@@ -130,28 +140,46 @@ class EventDefinition(Buffer):
     # --- Masks ---
 
     def _set_masks(self, mask_type: str, masks: list) -> None:
-        group = getattr(self.pvs, mask_type)
-        self._clear_masks(group)
-        cache = self._get_mask_cache()
-        bit_mask = 0
-        for mask in masks:
-            bit_num = cache[mask]
-            bit_mask = bit_mask | (1 << (bit_num + 32))
-        for modifier_num in (5, 4, 3, 2, 1):
-            mod_mask = (bit_mask >> 32 * (modifier_num + 1)) & 0xFFFFFFFF
-            if not (res := group[modifier_num].put(mod_mask, wait=True)):
-                raise ReservationError(
-                    f"PV timed out. pv={group[modifier_num].pvname} value={res}"
-                )
-            time.sleep(0.05)
+        """OR the named mask bits into the EDEF's existing mask words.
 
-    def _clear_masks(self, group) -> None:
-        res = [group[n].put(0, wait=True) for n in range(1, 6)]
+        Word n (n = 1..5) holds PNBN BITP 32n..32n+31.
+        """
+        group = getattr(self.pvs, mask_type)
+        words = self._read_mask_words(group)
+        cache = self._get_mask_cache()
+        unknown = [m for m in masks if m not in cache]
+        if unknown:
+            names = self.pvs.pnbn_names.pvnames
+            raise ReservationError(
+                f"Unknown {mask_type} mask(s) {unknown}; not found in "
+                f"{names[0]}..{names[-1]}"
+            )
+        new_words = dict(words)
+        for mask in masks:
+            word, bit = divmod(int(cache[mask]), 32)
+            if word not in new_words:
+                raise ReservationError(
+                    f"{mask_type} mask {mask!r} has BITP={cache[mask]}, outside "
+                    f"{group.pvnames[0]}..{group.pvnames[-1]}"
+                )
+            new_words[word] |= 1 << bit
+        changed = [n for n in new_words if new_words[n] != words[n]]
+        for n in changed:
+            if group[n].put(_to_int32(new_words[n]), wait=True) is None:
+                raise ReservationError(
+                    f"PV timed out. pv={group[n].pvname} value={new_words[n]:#010x}"
+                )
+        if changed:
+            time.sleep(_MASK_SETTLE_S)
+
+    def _read_mask_words(self, group) -> dict[int, int]:
+        res = group.get_many()
         if not all(r is not None for r in res):
             msg = "PV timed out."
             for i in range(0, len(res)):
                 msg += f"\npv={group[i + 1].pvname}, value={res[i]}"
             raise ReservationError(msg)
+        return {n: int(r) & 0xFFFFFFFF for n, r in zip(range(1, len(res) + 1), res)}
 
     def _get_mask_cache(self) -> dict:
         names = self.pvs.pnbn_names.get_many(as_string=True)
@@ -167,3 +195,8 @@ class EventDefinition(Buffer):
                 msg += f"\npv={self.pvs.pnbn_positions[i + 1].pvname}, value={positions[i]}"
             raise ReservationError(msg)
         return dict(zip(names, positions))
+
+
+def _to_int32(word: int) -> int:
+    """Convert an unsigned 32-bit word to the signed value a LONG PV holds."""
+    return word - (1 << 32) if word & 0x80000000 else word
