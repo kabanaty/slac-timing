@@ -155,13 +155,26 @@ class TestGetRetries:
 
 
 class TestGetPadWithRetries:
-    def test_pad_applied_when_no_retries(self, buffer):
+    def test_pad_applied(self, buffer):
         short = np.array([1.0, 2.0])
-        with _mock_pv(return_value=short):
-            result = buffer.get("SOME:PV", pad=True)
+        for kwargs in (
+            # no retries
+            {},
+            # retries > 0, see 5e00a87/64c5ee7
+            {"retries": 2, "retry_delay": 0},
+        ):
+            with _mock_pv(return_value=short):
+                result = buffer.get("SOME:PV", pad=True, **kwargs)
+            assert len(result) == 5
+            np.testing.assert_array_equal(result[:2], [1.0, 2.0])
+            assert np.isnan(result[2]) and np.isnan(result[3]) and np.isnan(result[4])
+
+    def test_pad_applied_when_none(self, buffer):
+        # test data-is-None branch of the same condition
+        with _mock_pv(return_value=None):
+            result = buffer.get("SOME:PV", pad=True, retries=2, retry_delay=0)
         assert len(result) == 5
-        np.testing.assert_array_equal(result[:2], [1.0, 2.0])
-        assert np.isnan(result[2])
+        assert all(np.isnan(result))
 
 
 class TestClearPvState:
