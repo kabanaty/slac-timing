@@ -105,6 +105,30 @@ def test_high_bit_written_as_signed_word():
     assert _words(e.pvs.inclusion) == [0x80000000, 0, 0, 0, 0]
 
 
+@pytest.mark.parametrize(
+    "word, expected",
+    [
+        (0, 0),
+        (1, 1),
+        (2**31 - 1, 2**31 - 1),
+        (2**31, -(2**31)),
+        (2**32 - 1, -1),
+    ],
+)
+def test_to_int32(word, expected):
+    from slac_timing.event_definition import _to_int32
+
+    assert _to_int32(word) == expected
+
+
+@pytest.mark.parametrize("word", [2**32, -1])
+def test_to_int32_out_of_range(word):
+    from slac_timing.event_definition import _to_int32
+
+    with pytest.raises(OverflowError):
+        _to_int32(word)
+
+
 @pytest.mark.ioc_yaml("masks_ioc.yaml")
 def test_unknown_mask_name():
     import slac_timing.event_definition

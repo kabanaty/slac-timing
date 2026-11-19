@@ -187,5 +187,9 @@ class EventDefinition(Buffer):
 
 
 def _to_int32(word: int) -> int:
-    """Convert an unsigned 32-bit word to the signed value a LONG PV holds."""
-    return word - (1 << 32) if word & 0x80000000 else word
+    """Convert an unsigned 32-bit word to the signed value a LONG PV holds.
+
+    Raises OverflowError if ``word`` is outside 0..2**32 - 1, so an
+    out-of-range value is never sent to the IOC.
+    """
+    return int.from_bytes(word.to_bytes(4, "big", signed=False), "big", signed=True)
