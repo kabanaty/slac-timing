@@ -46,11 +46,8 @@ def test_fail_clear_masks_pvs():
             n_measurements=1,
             n_avg=1,
             beamcode=0,
-            inclusion_masks=["foo", "bar"],
         )
-    error_msg = "PV timed out."
-    for i in range(1, 6):
-        error_msg += f"\npv=EDEF:SYS0:1:INCLUSION{i}, value=None"
+    error_msg = "PV timed out. pv=EDEF:SYS0:1:INCLUSION1 value=0x00000000"
     assert str(e.value) == error_msg
 
 
