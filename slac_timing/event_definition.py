@@ -138,52 +138,94 @@ class EventDefinition(Buffer):
 
     # --- Masks ---
 
-    def _set_masks(self, mask_type: str, masks: list) -> None:
+    def _set_masks(self, mask_type: str, mask_names: list) -> None:
         """Clear the EDEF's mask words, then set exactly the named mask bits.
 
         Word n (n = 1..5) holds PNBN BITP 32n..32n+31. All names are checked
         before any word is written.
         """
-        group = getattr(self.pvs, mask_type)
-        words = dict.fromkeys(range(1, len(group) + 1), 0)
-        if masks:
-            cache = self._get_mask_cache()
-            unknown = [m for m in masks if m not in cache]
-            if unknown:
-                names = self.pvs.pnbn_names.pvnames
-                raise ReservationError(
-                    f"Unknown {mask_type} mask(s) {unknown}; not found in "
-                    f"{names[0]}..{names[-1]}"
-                )
-            for mask in masks:
-                word, bit = divmod(int(cache[mask]), 32)
-                if word not in words:
-                    raise ReservationError(
-                        f"{mask_type} mask {mask!r} has BITP={cache[mask]}, outside "
-                        f"{group.pvnames[0]}..{group.pvnames[-1]}"
-                    )
-                words[word] |= 1 << bit
-        for n, word in words.items():
-            if group[n].put(_to_int32(word), wait=True) is None:
-                raise ReservationError(
-                    f"PV timed out. pv={group[n].pvname} value={word:#010x}"
-                )
-        time.sleep(_MASK_SETTLE_S)
 
-    def _get_mask_cache(self) -> dict:
-        names = self.pvs.pnbn_names.get_many(as_string=True)
-        if not all(n is not None for n in names):
+        def _apply_mask(pvs, bits):
+            for n, b in bits.items():
+                if pvs[n].put(_to_int32(b), wait=True) is None:
+                    raise ReservationError(
+                        f"PV timed out. pv={pvs[n].pvname} value={b:#010x}"
+                    )
+            time.sleep(_MASK_SETTLE_S)
+
+        def _assert_valid_names(names, name_map):
+            invalid_names = [n for n in names if n not in name_map]
+            if invalid_names:
+                pv_names = self.pvs.pnbn_names.pvnames
+                raise ReservationError(
+                    f"Unknown {mask_type} mask(s) {invalid_names}; not found in "
+                    f"{pv_names[0]}..{pv_names[-1]}"
+                )
+
+        def _assert_valid_pv_index(i, indicies):
+            if i not in indicies:
+                raise ReservationError(
+                    f"{mask_type} mask {name!r} has pv index={i}, outside "
+                    f"{pvs.pvnames[0]}..{pvs.pvnames[-1]}"
+                )
+
+        def _solve_index_and_bit(n):
+            """Number n is defined as: pv_index * 32 + bit_num
+            Where bit_num is the nth bit to flip.
+            e.g.
+                n = 34
+                pv_index = 1
+                bit_num = 2
+                bit = 2 ** 2 = 100 in binary.
+
+                n = 32
+                pv_index = 1
+                bit_num = 0
+                bit = 2 ** 0 = 1 in binary.
+            """
+            pv_index, bit_num = divmod(int(n), 32)
+            bit = 1 << bit_num
+            return pv_index, bit
+
+        pvs = getattr(self.pvs, mask_type)
+        bits = dict.fromkeys(range(1, len(pvs) + 1), 0)
+
+        if not mask_names:
+            _apply_mask(pvs, bits)
+
+        name_to_bit = self._create_mask_map()
+        _assert_valid_names(mask_names, name_to_bit)
+        for name in mask_names:
+            bit = name_to_bit.get(name)
+            i, one_bit = _solve_index_and_bit(bit)
+            _assert_valid_pv_index(i, bits)
+            # Flips one bit in the ith mask pv.
+            # 100 | 000 = 100 and 100 | 100 = 100.
+            bits[i] |= one_bit
+        _apply_mask(pvs, bits)
+
+    def _create_mask_map(self) -> dict:
+        """Masks are identified by a string, and have an associated int.
+        There is a 1-1 relationship PNBN:SYS0:X:NAME -> PNBN:SYS0:X:BITP
+                                           Mask Name -> Mask Int
+        """
+
+        def _get_many(pvs):
+            out = pvs.get_many(as_string=True)
+            invalid_indicies = [i for i, o in enumerate(out) if not o]
+            if not invalid_indicies:
+                return out
             msg = "PV timed out."
-            for i in range(0, len(names)):
-                msg += f"\npv={self.pvs.pnbn_names[i + 1].pvname}, value={names[i]}"
+            for i in invalid_indicies:
+                msg += f"\npv={pvs[i + 1].pvname}, value={out[i]}"
             raise ReservationError(msg)
-        positions = self.pvs.pnbn_positions.get_many()
-        if not all(n is not None for n in positions):
-            msg = "PV timed out."
-            for i in range(0, len(names)):
-                msg += f"\npv={self.pvs.pnbn_positions[i + 1].pvname}, value={positions[i]}"
-            raise ReservationError(msg)
-        return dict(zip(names, positions))
+
+        return dict(
+            zip(
+                _get_many(self.pvs.pnbn_names),
+                map(int, _get_many(self.pvs.pnbn_positions)),
+            )
+        )
 
 
 def _to_int32(word: int) -> int:

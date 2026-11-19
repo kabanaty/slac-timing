@@ -166,6 +166,6 @@ def test_mask_bit_outside_words():
             inclusion_masks=["YY"],
         )
     assert str(e.value) == (
-        "inclusion mask 'YY' has BITP=0, outside "
+        "inclusion mask 'YY' has pv index=0, outside "
         "EDEF:SYS0:1:INCLUSION1..EDEF:SYS0:1:INCLUSION5"
     )
